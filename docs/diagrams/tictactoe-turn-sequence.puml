@@ -1,0 +1,55 @@
+@startuml
+!include style.iuml
+
+actor Player
+participant ":CommandHandler" as Handler
+participant ":TicTacToeGame" as Game
+participant ":TicTacToeBoard" as Board
+participant ":Random" as Random
+
+Player -> Handler : enters a square
+activate Handler
+
+Handler -> Game : handleInput(...)
+activate Game
+
+Game -> Board : tryPlaceMark(row, column, 'X')
+activate Board
+Board --> Game : true
+deactivate Board
+
+Game -> Board : hasWinner('X')
+activate Board
+Board --> Game : false
+deactivate Board
+
+Game -> Game : collect empty squares
+activate Game
+deactivate Game
+
+Game -> Random : nextInt(...)
+activate Random
+Random --> Game : selected index
+deactivate Random
+
+Game -> Board : tryPlaceMark(row, column, 'O')
+activate Board
+Board --> Game : true
+deactivate Board
+
+Game -> Board : hasWinner('O')
+activate Board
+Board --> Game : false
+deactivate Board
+
+Game -> Board : toDisplayString()
+activate Board
+Board --> Game : updated board
+deactivate Board
+
+Game --> Handler : moves and updated board
+deactivate Game
+
+Handler --> Player : display result
+deactivate Handler
+@enduml

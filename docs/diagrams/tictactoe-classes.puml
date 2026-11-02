@@ -1,0 +1,31 @@
+@startuml
+!include style.iuml
+
+interface Game <<interface>> {
+  +handleInput(input: String): String
+  +isFinished(): boolean
+  +reset(): void
+}
+
+class TicTacToeGame {
+  -isFinished: boolean
+  -pointsEarnedForLastAction: int
+  +handleInput(input: String): String
+  +isFinished(): boolean
+  +reset(): void
+}
+
+class TicTacToeBoard {
+  -cells: char[][]
+  +tryPlaceMark(row: int, column: int, mark: char): boolean
+  +isCellEmpty(row: int, column: int): boolean
+  +hasWinner(mark: char): boolean
+  +isFull(): boolean
+  +reset(): void
+  +toDisplayString(): String
+}
+
+TicTacToeGame ..|> Game
+TicTacToeGame *--> "1" TicTacToeBoard : owns >
+TicTacToeGame --> "1" Random : picks computer moves with <
+@enduml

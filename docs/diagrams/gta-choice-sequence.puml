@@ -1,0 +1,46 @@
+@startuml
+!include style.iuml
+
+actor Player
+participant ":CommandHandler" as Handler
+participant ":GtaGame" as Game
+participant "currentNode:StoryNode" as Node
+participant "nextNode:StoryNode" as Next
+
+Player -> Handler : enters a choice
+activate Handler
+
+Handler -> Game : handleInput(...)
+activate Game
+
+Game -> Node : getChoiceKeys()
+activate Node
+Node --> Game : choice keys
+deactivate Node
+
+Game -> Game : look up the next node
+activate Game
+deactivate Game
+
+Game -> Next : formatForDisplay()
+activate Next
+Next --> Game : scenario text
+deactivate Next
+
+Game -> Next : isEnding()
+activate Next
+Next --> Game : boolean
+deactivate Next
+
+opt next node is an ending
+  Game -> Game : mark the session finished
+  activate Game
+  deactivate Game
+end
+
+Game --> Handler : formatted story text
+deactivate Game
+
+Handler --> Player : display result
+deactivate Handler
+@enduml

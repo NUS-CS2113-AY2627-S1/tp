@@ -1,9 +1,9 @@
 # About us
 
-Display | Name | Github Profile | Portfolio 
---------|:----:|:--------------:|:---------:
-![](https://via.placeholder.com/100.png?text=Photo) | John Doe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Joe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Ron John | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | John Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
+Display |        Name        |              Github Profile              | Portfolio 
+--------|:------------------:|:----------------------------------------:|:---------:
+![Lim Zi Jing](images/limzijing.jpg) |    Lim Zi Jing     |  [Github](https://github.com/LimZiJing)  | [Portfolio](team/limzijing.md)
+![](https://avatars.githubusercontent.com/u/69632036?v=4) | Vivekan Kathiravan | [Github](https://github.com/double-Vgun) | [Portfolio](team/double-vgun.md)
+<img src="https://github.com/PoonnatW.png" width="512" /> | Poonnat Wattanakul |  [Github](https://github.com/PoonnatW)   | [Portfolio](team/poonnatw.md)
+![](https://avatars.githubusercontent.com/u/110110916?s=400&v=4) |   Seow Cheng Si    |   [Github](https://github.com/seowcs)    | [Portfolio](team/seowcs.md)
+![](https://avatars.githubusercontent.com/u/226053960?v=4&size=64) | Yue Wei An Joshua  |    [Github](https://github.com/j-122)    | [Portfolio](team/j-122.md)

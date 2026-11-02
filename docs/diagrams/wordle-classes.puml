@@ -1,0 +1,35 @@
+@startuml
+!include style.iuml
+
+interface Game <<interface>> {
+  +handleInput(input: String): String
+  +isFinished(): boolean
+  +reset(): void
+}
+
+class WordleGame {
+  -secretWord: String
+  -attemptsUsed: int
+  -guessedWords: Set<String>
+  +handleInput(input: String): String
+  +isFinished(): boolean
+  +reset(): void
+}
+
+class WordleHelp {
+  -correctPositionLetters: Map<Integer, Character>
+  -incorrectPositionLetters: Set<Character>
+  -absentLetters: Set<Character>
+  +evaluateGuess(guess: String, secretWord: String): String
+  +listLetters(): String
+  +reset(): void
+}
+
+class WordListReader {
+  +{static} loadWords(): List<String>
+}
+
+WordleGame ..|> Game
+WordleGame *--> "1" WordleHelp : tracks hints with >
+WordleGame ..> WordListReader : loads answers from <
+@enduml

@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'application'
     id 'checkstyle'
+    id 'jacoco'
     id 'com.gradleup.shadow' version '9.5.1'
 }
 
@@ -38,7 +39,7 @@ test {
 }
 
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'seedu.duke.PlayStationMinusOne'
 }
 
 jar {
@@ -49,7 +50,7 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'playstation-minus-one.jar'
 }
 
 checkstyle {
@@ -58,4 +59,5 @@ checkstyle {
 
 run {
     standardInput = System.in
+    enableAssertions = true
 }
