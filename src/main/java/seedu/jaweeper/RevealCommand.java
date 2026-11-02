@@ -1,0 +1,178 @@
+package seedu.jaweeper;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Reveals a cell on the board and ends the game if the cell is a mine.
+ */
+public class RevealCommand extends Command {
+    private static final Logger LOGGER = Logger.getLogger(RevealCommand.class.getName());
+
+    private final GameSession session;
+    private final int row;
+    private final int col;
+
+    /**
+     * Legacy constructor for coordinate-only usage.
+     */
+    public RevealCommand(int row, int col) {
+        this(null, row, col);
+    }
+
+    /**
+     * Constructs a RevealCommand with session, row, and column context.
+     */
+    public RevealCommand(GameSession session, int row, int col) {
+        this.session = session;
+        this.row = row;
+        this.col = col;
+    }
+
+    /**
+     * Reveals the target cell, then updates the game state if the player wins or loses.
+     * Prints an error message instead if the reveal is not allowed.
+     */
+    @Override
+    public void execute(Board board) {
+        assert board != null : "Board must not be null";
+        assert board.grid != null : "Board grid must be initialized before revealing";
+
+        LOGGER.log(Level.FINE, "Reveal requested at (" + row + ", " + col + ")");
+
+        try {
+            checkCanReveal(board);
+        } catch (IllegalStateException | IllegalArgumentException exception) {
+            LOGGER.log(Level.INFO, "Reveal rejected: " + exception.getMessage());
+            System.out.println(exception.getMessage());
+            return;
+        }
+
+        Cell target = board.grid[row][col];
+        assert target != null : "Cell in grid must not be null";
+
+        // @@author ProNoob116
+        // Only a reveal that changes the board gets an undo step; re-revealing a cell does not.
+        if (!target.isRevealed) {
+            recordHistory(board);
+        }
+        // @@author
+
+        // Classic Minesweeper: the first reveal of a game is never a mine and opens a blank area.
+        // The player can switch this off with 'settings safeclick off'.
+        if (session == null || session.isSafeClickEnabled()) {
+            board.ensureSafeFirstClick(row, col);
+        } else {
+            board.skipSafeFirstClick();
+        }
+
+        if (target.isMine) {
+            revealMine(board, target);
+        } else {
+            revealSafeCell(board, target);
+        }
+    }
+
+    /**
+     * Checks that the target cell can be revealed, throwing an exception if the game is over,
+     * the coordinates are out of bounds, or the cell is flagged.
+     */
+    private void checkCanReveal(Board board) {
+        if (board.isGameOver()) {
+            throw new IllegalStateException("The game is over. Type 'new' to start a new game.");
+        }
+        if (row < 0 || row >= board.getRows() || col < 0 || col >= board.getCols()) {
+            throw new IllegalArgumentException("Coordinates are out of bounds.");
+        }
+        if (board.grid[row][col].isFlagged) {
+            throw new IllegalArgumentException("Cell is flagged! Unflag it first.");
+        }
+    }
+
+    /**
+     * Reveals a mine, marks the game as lost, stops the timer, updates statistics and shows all mines.
+     */
+    private void revealMine(Board board, Cell target) {
+        target.isRevealed = true;
+        board.setGameState(GameState.LOST);
+
+        if (session != null) {
+            if (session.getGameTimer() != null) {
+                session.getGameTimer().stop();
+            }
+            session.getActiveProfile().getStats().recordLoss();
+            session.saveStats();
+            // The loss is final: undoing it would let the same game also be won.
+            session.clearBoardHistory();
+        }
+
+        assert target.isRevealed : "Mine cell should be revealed after hitting it";
+        assert board.getGameState() == GameState.LOST : "Game should be lost after hitting a mine";
+        LOGGER.log(Level.INFO, "Mine hit at (" + row + ", " + col + "); game lost");
+
+        System.out.println("BOOM! You hit a mine at (" + (row + 1) + ", " + (col + 1) + ").");
+        // The board is drawn after the state is LOST, so every remaining mine is shown.
+        board.printBoard();
+        System.out.println("========================");
+        System.out.println("       GAME OVER        ");
+        System.out.println("========================");
+        deleteFinishedGameSaves();
+    }
+
+    /**
+     * Reveals a safe cell and its blank neighbors, then checks whether the player has won.
+     */
+    private void revealSafeCell(Board board, Cell target) {
+        board.floodFill(row, col);
+
+        assert target.isRevealed : "Safe cell should be revealed after flood fill";
+        LOGGER.log(Level.FINE, "Safe cell revealed at (" + row + ", " + col + ")");
+
+        board.printBoard();
+
+        if (board.checkVictory()) {
+            board.setGameState(GameState.WON);
+
+            if (session != null) {
+                long timeTakenInMillis = 0;
+                if (session.getGameTimer() != null) {
+                    session.getGameTimer().stop();
+                    timeTakenInMillis = session.getGameTimer().getElapsedMillis();
+                }
+                // Stats stores completion times in milliseconds.
+                session.getActiveProfile().getStats().recordWin(timeTakenInMillis);
+                session.saveStats();
+                // The win is final: undoing it would let the same game be won again.
+                session.clearBoardHistory();
+            }
+
+            assert board.getGameState() == GameState.WON : "Game should be won after victory";
+            LOGGER.log(Level.INFO, "All safe cells revealed; game won");
+
+            System.out.println("========================");
+            System.out.println("        VICTORY!        ");
+            System.out.println("========================");
+            deleteFinishedGameSaves();
+        }
+    }
+
+    /**
+     * Removes this finished game's saves so it cannot be reloaded and played again.
+     */
+    private void deleteFinishedGameSaves() {
+        if (session != null) {
+            session.deleteFinishedGameSaves();
+        }
+    }
+
+    // @@author ProNoob116
+    /**
+     * Saves the board before this reveal command changes it.
+     */
+    private void recordHistory(Board board) {
+        if (session != null) {
+            session.pushBoardHistory(board);
+        }
+    }
+    // @@author
+}

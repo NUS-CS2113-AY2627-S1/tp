@@ -1,0 +1,87 @@
+@startuml new-hard-class-diagram
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceParticipant underline false
+title New hard command
+
+enum Difficulty {
+    EASY
+    MEDIUM
+    HARD
+    --
+    + rows : int
+    + cols : int
+    + mines : int
+    --
+    {method}
+}
+
+abstract class Command {
+    --
+    + {abstract} execute(board : Board)
+    + isExit() : boolean
+}
+
+class NewGameCommand {
+    - difficulty : Difficulty
+    --
+    + NewGameCommand()
+    + NewGameCommand(difficulty : Difficulty)
+    + execute(board : Board)
+}
+
+class Parser {
+    --
+    + {static} parse(input, coordinateCommands, featureCommands, rows, columns) : Command
+    - {static} parseNewCommand(words : String[]) : Command
+}
+
+class Board {
+    - rows : int
+    - cols : int
+    - totalMines : int
+    + grid : Cell[][]
+    - gameState : GameState
+    - isFirstMove : boolean
+    --
+    + Board()
+    + Board(rows : int, cols : int, totalMines : int)
+    + copyStateFrom(freshBoard : Board)
+    + getRows() : int
+    + getCols() : int
+    + getTotalMines() : int
+    + printBoard()
+    + setGameState(gameState : GameState)
+}
+
+class GameSession {
+    - board : Board
+    --
+    + getBoard() : Board
+}
+
+class Cell {
+    --
+    {method}
+}
+
+enum GameState {
+    IN_PROGRESS
+    WON
+    LOST
+    --
+    {method}
+}
+
+NewGameCommand -up-|> Command
+NewGameCommand --> "difficulty" Difficulty
+NewGameCommand ..> "creates" Board
+Parser ..> "creates" NewGameCommand
+Parser ..> Difficulty
+Board --> "*" Cell
+Board --> "gameState" GameState
+Board ..> "EASY" Difficulty
+GameSession --> "board" Board
+@enduml

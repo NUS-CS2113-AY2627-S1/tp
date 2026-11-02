@@ -18,6 +18,7 @@ dependencies {
     String jUnitVersion = '5.14.4'
 
     testImplementation "org.junit.jupiter:junit-jupiter-api:${jUnitVersion}"
+    testImplementation "org.junit.jupiter:junit-jupiter-params:${jUnitVersion}"
 
     testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${jUnitVersion}"
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.14.4'
@@ -25,6 +26,7 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    enableAssertions = true
 
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -38,7 +40,7 @@ test {
 }
 
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'seedu.jaweeper.Jaweeper'
 }
 
 jar {
@@ -49,7 +51,7 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'jaweeper.jar'
 }
 
 checkstyle {
@@ -58,4 +60,5 @@ checkstyle {
 
 run {
     standardInput = System.in
+    enableAssertions = true
 }

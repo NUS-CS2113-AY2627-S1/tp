@@ -1,0 +1,42 @@
+@startuml new-hard-sequence-diagram
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam sequenceParticipant underline false
+title Successful new hard
+
+participant Jaweeper
+participant "<<class>>\nParser" as Parser
+participant Difficulty
+participant "existing Board" as Board
+
+Jaweeper -> Parser ++ : parse("new hard", featureCommands, rows, cols)
+Parser -> Parser ++ : apply(["hard"])
+create NewGameCommand
+Parser -> NewGameCommand ++ : new NewGameCommand(session, HARD)
+NewGameCommand --> Parser --
+Parser --> Parser --
+Parser --> Jaweeper -- : command
+
+Jaweeper -> NewGameCommand ++ : execute(board)
+NewGameCommand -> Difficulty ++ : rows, cols, mines
+Difficulty --> NewGameCommand -- : 16, 30, 99
+NewGameCommand -> Board ++ : setGameState(IN_PROGRESS)
+Board --> NewGameCommand --
+create "new Board" as Fresh
+NewGameCommand -> Fresh ++ : new Board(16, 30, 99)
+Fresh -> Fresh ++ : placeMines()
+Fresh --> Fresh --
+Fresh -> Fresh ++ : calculateAdjacencies()
+Fresh --> Fresh --
+Fresh --> NewGameCommand --
+NewGameCommand -> Board ++ : copyStateFrom(fresh)
+Board --> NewGameCommand --
+NewGameCommand -> Board ++ : printBoard()
+Board --> NewGameCommand --
+NewGameCommand --> Jaweeper --
+
+Jaweeper -> NewGameCommand ++ : isExit()
+NewGameCommand --> Jaweeper -- : false
+@enduml
