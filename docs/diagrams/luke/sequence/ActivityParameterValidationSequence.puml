@@ -1,0 +1,61 @@
+/'
+// @@author lukelouyu
+'/
+@startuml
+title Check activity parameters before creating a command
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam ParticipantBackgroundColor #EDF3F8
+skinparam ParticipantBorderColor #526477
+skinparam ArrowColor #526477
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor "User" as User
+participant "ui:Ui" as UI
+participant "ConsoleHelper" as Console <<class>>
+participant "parser:Parser" as Parser
+participant "activityParser:AddCommandParser" as Fields
+participant "ActivityParameterValidator" as Validator <<class>>
+
+Console -> UI : readLine()
+User -> UI : add n/Class demm/HIGH ...
+UI --> Console : input
+
+Console -> Parser : parse("add n/Class demm/HIGH ...")
+Parser -> Fields : parse(arguments)
+Fields -> Validator : validate(arguments)
+loop every slash token
+  Validator -> Validator : accept supported prefixes at whitespace boundaries
+  Validator -> Validator : reject unknown prefixes
+  Validator -> Validator : isOneEditAway(token, prefix)
+end
+alt an unsupported slash token exists
+  Validator --> Fields : throws ParseException(warning)
+  Fields --> Parser : propagate ParseException
+  Parser --> Console : propagate ParseException
+  Console -> UI : showMessage(warning)
+  UI --> User : warning
+  note over Console, Fields
+    No activity command executes.
+    Nothing is added, edited, or saved.
+  end note
+else every prefix is supported
+  Validator --> Fields : validation passed
+  Fields -> Fields : readFields(arguments), validate values
+  Fields --> Parser : validated command
+  Parser --> Console : command
+  note over Console, Fields
+    Normal command execution follows successful parsing.
+    Literal slash text in names is rejected, not retained as name content.
+  end note
+end
+note over Fields, Validator
+  EditCommandParser uses the same validation before reading edit fields.
+end note
+@enduml
+/'
+// @@author
+'/

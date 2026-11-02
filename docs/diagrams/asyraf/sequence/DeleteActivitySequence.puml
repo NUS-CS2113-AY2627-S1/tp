@@ -1,0 +1,68 @@
+/'
+// @@author officialasyrafrahim
+'/
+@startuml
+title Delete the first chronological activity
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam ParticipantBackgroundColor #EDF3F8
+skinparam ParticipantBorderColor #526477
+skinparam ArrowColor #526477
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor "User" as User
+participant "ui:Ui" as UI
+participant "ConsoleHelper" as Console <<class>>
+participant ":DeleteCommand" as Delete
+participant "activities:ActivityList" as Activities
+
+Console -> UI : readLine()
+User -> UI : delete 1
+UI --> Console : input
+
+note over Console, Delete
+  Parser has already created DeleteCommand(1).
+end note
+Console -> Delete : execute(activities, storage)
+activate Delete
+Delete -> Activities : deleteByDisplayedIndex(1)
+activate Activities
+Activities -> Activities : getByDisplayedIndex(1)
+activate Activities
+note right of Activities
+  Read the canonical view.
+  Check that the index exists.
+  Select canonical.get(0).
+end note
+Activities --> Activities : removed
+deactivate Activities
+note right of Activities
+  Remove that object from the backing list.
+end note
+Activities --> Delete : removed activity
+deactivate Activities
+Delete -> Activities : getActivities()
+activate Activities
+Activities --> Delete : insertion-order snapshot
+deactivate Activities
+note right of Delete
+  Use the remaining size and removed
+  activity's details in the message.
+end note
+Delete --> Console : result (didChangeActivities = true)
+deactivate Delete
+note over Console, Activities
+  ConsoleHelper saves the updated activities,
+  then displays the result.
+end note
+ref over User, Console
+  CompletionAndSaveSequence
+  result, activities, storage
+end ref
+@enduml
+/'
+// @@author
+'/

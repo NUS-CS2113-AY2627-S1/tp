@@ -1,0 +1,71 @@
+/'
+// @@author lukelouyu
+'/
+@startuml
+title Find a shortest recorded accessible route
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam ParticipantBackgroundColor #EDF3F8
+skinparam ParticipantBorderColor #526477
+skinparam ArrowColor #526477
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor "User" as User
+participant "ui:Ui" as UI
+participant "ConsoleHelper" as Console <<class>>
+participant ":RouteCommand" as Command
+participant ":ConnectionManager" as Manager
+participant ":DijkstraShortestPath" as Graph
+
+Console -> UI : readLine()
+User -> UI : enter route command
+UI --> Console : input
+
+note over Console, Command
+  RouteParser has created the command.
+  Example: reachable route from AS6 to AS7.
+end note
+Console -> Command : execute(activities, storage)
+activate Command
+Command -> Manager : findRoute(from, to)
+activate Manager
+Manager -> Graph : findRoute(from, to)
+activate Graph
+create participant ":DijkstraSolver" as Solver
+Graph -> Solver : DijkstraSolver(...)
+Graph -> Solver : computeShortestPaths(adjacency, source)
+activate Solver
+note over Graph, Solver
+  Use a priority queue and settle vertices.
+  Record shorter distances and predecessors.
+end note
+Solver --> Graph
+deactivate Solver
+Graph -> Solver : getDistance(destination)
+activate Solver
+Solver --> Graph : distance
+deactivate Solver
+Graph -> Graph : reconstruct route
+note right of Graph
+  Read solver predecessors.
+  Reverse stops and segments.
+end note
+Graph --> Manager : Optional.of(route)
+deactivate Graph
+Manager --> Command : Optional.of(route)
+deactivate Manager
+Command -> Command : formatRoute(route)
+note right of Command
+  Append the sample-data notice.
+end note
+Command --> Console : result (didChangeActivities = false)
+deactivate Command
+note over Console, Command
+  Display the result through Ui; no activity save.
+end note
+Console -> UI : showMessage(...)
+UI --> User : route result
+@enduml
