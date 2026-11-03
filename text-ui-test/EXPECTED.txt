@@ -1,0 +1,292 @@
+  ____        _     
+ |  _ \      | |    
+ | |_) | ___ | |__  
+ |  _ < / _ \| '_ \ 
+ | |_) | (_) | |_) |
+ |____/ \___/|_.__/ 
+
+What is your name?
+Hello Alex, welcome to Bob!
+--------------------------------------------------------------------
+Successfully added: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+No items in preparation.
+--------------------------------------------------------------------
+
+Successfully added: 20x Wire to the inventory
+
+Successfully added: 3x Red LED to the inventory
+
+Successfully added: 20x Wire [Components] to preparation
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 20)
+--------------------------------------------------------------------
+
+Successfully added: 10x Red LED [Components] to preparation
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 20)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+Successfully added: 10x Battery [Components] to preparation
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 20)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+3. Battery [Components] (Required: 10, Available: 0) !! Insufficient items (Shortfall: 10)
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Inventory
+--------------------------------------------------------------------
+Components
+1: Wire (Qty: 20)
+2: Red LED (Qty: 3)
+--------------------------------------------------------------------
+
+Successfully removed: 10x Battery [Components] from preparation
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 20)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+Successfully removed: 10x Wire from the inventory
+
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 10) !! Insufficient items (Shortfall: 10)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+Successfully added loan: 3x Wire [Components] to Alex Tan (91234567), due 31 December 2099
+
+--------------------------------------------------------------------
+Loans
+--------------------------------------------------------------------
+1. 3x Wire [Components] to Alex Tan (91234567), due 31 December 2099
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 7) !! Insufficient items (Shortfall: 13)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Contacts
+--------------------------------------------------------------------
+No contacts saved.
+--------------------------------------------------------------------
+
+Successfully deleted incorrect loan: 3x Wire [Components] to Alex Tan (91234567), due 31 December 2099. Inventory restored.
+
+--------------------------------------------------------------------
+Loans
+--------------------------------------------------------------------
+No active loans.
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 10) !! Insufficient items (Shortfall: 10)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+Successfully added loan: 2x Wire [Components] to Sam Lee (87878787), due 31 December 2099
+
+Successfully returned loan: 2x Wire [Components] to Sam Lee (87878787), due 31 December 2099. Inventory restored.
+
+--------------------------------------------------------------------
+Loans
+--------------------------------------------------------------------
+No active loans.
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Lab preparation: First Lab on 31 December 2099 at Room-A from 0900 to 1000 for 10 attendees
+--------------------------------------------------------------------
+1. Wire [Components] (Required: 20, Available: 10) !! Insufficient items (Shortfall: 10)
+2. Red LED [Components] (Required: 10, Available: 3) !! Insufficient items (Shortfall: 7)
+--------------------------------------------------------------------
+
+Successfully added loan: 1x Wire [Components] to Backlog Student (91234567), due 1 January 2000
+Warning: this loan is already overdue.
+
+--------------------------------------------------------------------
+Loans
+--------------------------------------------------------------------
+1. 1x Wire [Components] to Backlog Student (91234567), due 1 January 2000 [OVERDUE]
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Overdue loans
+--------------------------------------------------------------------
+1. 1x Wire [Components] to Backlog Student (91234567), due 1 January 2000 [OVERDUE]
+--------------------------------------------------------------------
+
+Successfully returned loan: 1x Wire [Components] to Backlog Student (91234567), due 1 January 2000. Inventory restored.
+
+--------------------------------------------------------------------
+Overdue loans
+--------------------------------------------------------------------
+No overdue loans.
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 10, On loan: 0) - Available
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "COMP"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 10, On loan: 0) - Available
+2. Red LED [Components] (Available: 3, On loan: 0) - Available
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "battery"
+--------------------------------------------------------------------
+No items match "battery".
+--------------------------------------------------------------------
+
+Invalid format. Use: find-i KEYWORD
+
+Successfully recorded broken item: 3x Wire [Components], fault: Frayed insulation, reported 1 January 2000. Available inventory reduced.
+
+--------------------------------------------------------------------
+Broken items
+--------------------------------------------------------------------
+1. 3x Wire [Components], fault: Frayed insulation, reported 1 January 2000
+   Contact: Not assigned
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 7, On loan: 0) - Available
+--------------------------------------------------------------------
+
+Cannot report 8 Wire as broken. Only 7 are available.
+
+--------------------------------------------------------------------
+Broken items
+--------------------------------------------------------------------
+1. 3x Wire [Components], fault: Frayed insulation, reported 1 January 2000
+   Contact: Not assigned
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 7, On loan: 0) - Available
+--------------------------------------------------------------------
+
+Successfully deleted broken-item report: 3x Wire [Components], fault: Frayed insulation, reported 1 January 2000. All units restored to inventory.
+
+--------------------------------------------------------------------
+Broken items
+--------------------------------------------------------------------
+No broken items recorded.
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 10, On loan: 0) - Available
+--------------------------------------------------------------------
+
+Successfully added request: Alice - 12x Wire by 31 December 2099
+Request list updated. Run list-r to see the latest order.
+
+Successfully added request: Bob - 1x Wire by 31 December 2099
+Request list updated. Run list-r to see the latest order.
+
+Cannot remove 12 Wire. Only 10 are available.
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+1. Wire [Components] (Available: 10, On loan: 0) - Available
+--------------------------------------------------------------------
+
+Successfully added: 2x Wire to the inventory
+
+Successfully marked request 1 as fulfilled: Alice - 12x Wire by 31 December 2099
+
+Request 1 is already fulfilled and cannot be changed: Alice - 12x Wire by 31 December 2099
+
+Request 1 is already fulfilled and cannot be changed: Alice - 12x Wire by 31 December 2099
+
+Successfully marked request 2 as prepared: Bob - 1x Wire by 31 December 2099
+
+--------------------------------------------------------------------
+Student requests
+--------------------------------------------------------------------
+1. [Fulfilled] Alice - 12x Wire by 31 December 2099 (Available: 0)
+2. [Prepared] Bob - 1x Wire by 31 December 2099 (Available: 0) !! Insufficient stock (Shortfall: 1)
+--------------------------------------------------------------------
+
+Successfully removed request: Alice - 12x Wire by 31 December 2099
+Request list updated. Run list-r to see the latest order.
+
+--------------------------------------------------------------------
+Search results for "wire"
+--------------------------------------------------------------------
+No items match "wire".
+--------------------------------------------------------------------
+
+--------------------------------------------------------------------
+Available commands
+--------------------------------------------------------------------
+Inventory
+  add-i n/NAME c/CATEGORY [q/QUANTITY]
+  delete-i c/CATEGORY i/INDEX_OF_ITEM q/QUANTITY
+  list-i
+  find-i KEYWORD
+Lab sessions
+  add-s n/NAME d/DATE l/LOCATION s/STARTTIME e/ENDTIME p/HEADCOUNT
+  delete-s INDEX
+  list-s
+Lab preparation
+  add-p s/SESSION_INDEX i/ITEM_NAME c/CATEGORY [q/QUANTITY_PER_PERSON]
+  delete-p s/SESSION_INDEX i/ITEM_INDEX q/TOTAL_QUANTITY
+  list-p s/SESSION_INDEX
+Student requests
+  add-r n/STUDENT_NAME i/ITEM q/QUANTITY d/DEADLINE
+  delete-r INDEX
+  list-r
+  mark-r INDEX STATUS (prepared or fulfilled)
+Contacts
+  add-c n/NAME t/PHONE [e/EMAIL] [r/ROLE]
+  delete-c INDEX [-force]
+  list-c
+Loans
+  add-l n/NAME c/CATEGORY q/QUANTITY b/BORROWER t/PHONE d/DUE_DATE
+  list-l [overdue|history|returned]
+  delete-l INDEX
+  return INDEX
+Broken items
+  add-b n/NAME c/CATEGORY q/QUANTITY f/FAULT d/DATE_REPORTED [m/CONTACT_INDEX]
+  list-b
+  delete-b INDEX
+    Deletion restores all units: use only for full repairs or incorrect reports.
+Other
+  help
+  Bye
+--------------------------------------------------------------------
+

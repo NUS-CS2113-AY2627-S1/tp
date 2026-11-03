@@ -1,9 +1,9 @@
 # About us
 
-Display | Name | Github Profile | Portfolio 
---------|:----:|:--------------:|:---------:
-![](https://via.placeholder.com/100.png?text=Photo) | John Doe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Joe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Ron John | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | John Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
+Display |    Name    |             Github Profile              | Portfolio 
+--------|:----------:|:---------------------------------------:|:---------:
+![](https://via.placeholder.com/100.png?text=Photo) | Rachel Li  | [Github](https://github.com/rachelnwk)  | [Portfolio](team/rachelnwk.md)
+![](https://via.placeholder.com/100.png?text=Photo) | Dayna Gan  |  [Github](https://github.com/DaynaG3)   | [Portfolio](team/daynag3.md)
+![](https://via.placeholder.com/100.png?text=Photo) | Tan Yu Jun |  [Github](https://github.com/J-unn-y)   | [Portfolio](team/j-unn-y.md)
+![](https://via.placeholder.com/100.png?text=Photo) | Gavin Lim  | [Github](https://github.com/gavinlimsh) | [Portfolio](team/gavinlimsh.md)
+![](https://via.placeholder.com/100.png?text=Photo) | Wei Xiong  |   [Github](https://github.com/Lokwx)    | [Portfolio](team/lokwx.md)
