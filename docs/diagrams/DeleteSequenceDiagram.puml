@@ -1,0 +1,45 @@
+@startuml DeleteSequenceDiagram
+' @@author lololol8484
+' Deleting the transaction shown at a recent/find index.
+hide footbox
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+
+actor User
+participant ":FinNUS" as FinNUS
+participant "<<class>>\nParser" as Parser
+participant "command:DeleteCommand" as Delete
+participant "transactions:TransactionList" as Ledger
+participant ":Ui" as Ui
+
+User -> FinNUS: delete 2
+activate FinNUS
+FinNUS -> Parser: parse(input, today)
+activate Parser
+Parser -> Delete: new DeleteCommand(2)
+Parser --> FinNUS: command
+deactivate Parser
+FinNUS -> Delete: execute(transactions, ui)
+activate Delete
+
+alt index is invalid or out of range
+    Delete --> FinNUS: throw FinNusException
+    FinNUS -> Ui: showError(...)
+else valid recent-list index
+    Delete -> Ledger: delete(size - index)
+    activate Ledger
+    Ledger -> Ledger: remove entry and preserve date order
+    Ledger --> Delete: deleted transaction
+    deactivate Ledger
+    Delete -> Ui: show deletion confirmation
+    Delete --> FinNUS: return
+    FinNUS -> FinNUS: compare snapshots and save if changed
+end
+deactivate Delete
+deactivate FinNUS
+
+note over Delete, Ledger
+    Index 1 is the newest transaction.
+    The opening balance is not a transaction and cannot be deleted.
+end note
+@enduml

@@ -1,0 +1,70 @@
+@startuml SetupSequenceDiagram
+' @@author lololol8484
+actor User
+participant ":FinNUS" as FinNUS
+participant "setup:Setup" as Setup
+participant "ui:Ui" as Ui
+participant "confirmation:Confirmation" as Confirmation
+participant "command:OpeningBalanceCommand" as Opening
+participant "command:AllowanceCommand" as Allowance
+participant "transactions:TransactionList" as Ledger
+participant "settings:SpendingAlert" as SpendingAlert
+
+FinNUS -> Setup: run(ui, transactions)
+activate Setup
+Setup -> Ui: show setup instructions
+
+loop until opening balance is confirmed or input ends
+    Setup -> Ui: read opening balance
+    User -> Ui: amount
+    Ui --> Setup: amount
+    Setup -> Confirmation: ask to confirm amount
+    Confirmation -> Ui: read yes/no answer
+    User -> Ui: yes / no
+    Ui --> Confirmation: answer
+    Confirmation --> Setup: YES / NO / INPUT_ENDED
+    alt NO
+        note right of Setup: Ask for the opening balance again.
+    else INPUT_ENDED
+        Setup --> FinNUS: false
+    else YES
+        Setup -> Opening: new OpeningBalanceCommand(amount)
+        Setup -> Opening: execute(transactions, ui)
+        Opening -> Ledger: set opening balance
+    end
+end
+
+Setup -> Ui: ask for optional balance threshold
+    User -> Ui: amount or Enter
+    Ui --> Setup: threshold or empty
+
+Setup -> Ui: ask for optional allowance day
+User -> Ui: day or Enter
+Ui --> Setup: day or empty
+opt allowance day supplied
+    Setup -> Ui: ask for optional allowance amount
+    User -> Ui: amount or Enter
+    Ui --> Setup: amount or empty
+    Setup -> Allowance: set(...).execute(transactions, ui)
+    Allowance -> Ledger: set allowance
+    opt allowance amount entered
+        Setup -> Ui: ask for optional allowance percentage
+        User -> Ui: percentage or Enter
+        Ui --> Setup: percentage or empty
+    end
+end
+
+Setup -> SpendingAlert: create optional alert settings
+Setup -> Ledger: set spending alert settings
+Setup --> FinNUS: true
+deactivate Setup
+
+note over Setup, Ledger
+    Invalid amounts and confirmation answers are retried.
+    Input ending before confirmation returns false and stops setup.
+    Enter or end of input skips optional settings after confirmation.
+    The percentage option requires an allowance amount.
+    At withdrawal time, 100% of the allowance (if set), opening balance,
+    and zero are checked automatically.
+end note
+@enduml

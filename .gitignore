@@ -18,3 +18,20 @@ _temp/
 
 /text-ui-test/ACTUAL.TXT
 text-ui-test/EXPECTED-UNIX.TXT
+
+# VS Code files
+/.vscode/
+
+# FinNUS log files
+*.log
+*.log.*
+
+# FinNUS saved state and recovery artifacts
+/finnus.txt
+/finnus.txt.bak
+/finnus.txt.corrupt-*
+/finnus.txt.bak.corrupt-*
+/.finnus-*.tmp
+
+# Agent Skills
+/.codex/
