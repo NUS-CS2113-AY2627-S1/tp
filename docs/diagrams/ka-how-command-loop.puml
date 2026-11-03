@@ -1,0 +1,70 @@
+@startuml
+!include course-style.puml
+' Gaps reserve space for return labels below their arrows in the course export.
+
+participant "output:PrintWriter" as Output VALUES
+participant "ui:ConsoleUi" as UI SHELL
+participant "app:App" as App SHELL
+participant "parser:CommandParser" as Parser PARSING
+participant "dispatcher:CommandDispatcher" as Dispatcher DOMAIN
+participant "renderer:TextRenderer" as Renderer SHELL
+
+[-> App ++ : runCommands(state)
+App -> UI ++ : prompt()
+UI -> Output ++ : print("scheduleflow> ")
+Output --> UI -- : return
+||16||
+UI -> Output ++ : checkError()
+Output --> UI -- : false
+||16||
+UI --> App -- : return
+||16||
+App -> UI ++ : readLine()
+UI --> App -- : "help"
+||16||
+App -> Parser ++ : parse("help")
+Parser --> App -- : command: Command.Help
+||16||
+App -> Dispatcher ++ : execute(command, state)
+Dispatcher -> Renderer ++ : help()
+Renderer --> Dispatcher -- : helpText
+||16||
+Dispatcher --> App -- : response: CommandResponse
+||16||
+App -> App ++ : writeResponse(helpText)
+App -> UI ++ : write(helpText)
+UI -> Output ++ : println(helpText)
+Output --> UI -- : return
+||16||
+UI -> Output ++ : checkError()
+Output --> UI -- : false
+||16||
+UI --> App -- : return
+||16||
+App --> App -- : true
+||16||
+note right of App
+  response.shouldExit() is false.
+  Time capture, value construction and accessors are omitted.
+end note
+
+App -> UI ++ : prompt()
+UI -> Output ++ : print("scheduleflow> ")
+Output --> UI -- : return (writer records failure)
+||16||
+UI -> Output ++ : checkError()
+Output --> UI -- : true
+||16||
+UI --> App -- : throws UncheckedIOException
+||16||
+note right of UI
+  flushOutput() calls are abbreviated as checkError().
+  checkError() also flushes the writer.
+end note
+note right of App
+  No next readLine() or error response.
+  Successfully saved commands remain saved.
+end note
+[<-- App -- : 1
+||16||
+@enduml

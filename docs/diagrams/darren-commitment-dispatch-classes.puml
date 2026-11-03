@@ -1,0 +1,66 @@
+@startuml
+!include course-style.puml
+left to right direction
+hide empty members
+
+class CommandDispatcher DOMAIN {
+    - clock: Clock
+    + execute(command: Command, state: AppState) : CommandResponse
+    - addContinuousBlock(command: Command.AddContinuousBlock, ...) : String
+    - addDailyBlocks(command: Command.AddDailyBlocks, ...) : String
+    - publishUnavailableBatch(original: Snapshot, ...) : String
+    - editCommitment(command: Command.EditCommitment, state: AppState) : String
+    - saveAndCommit(candidate: Snapshot, state: AppState) : void
+    - generatePlan(state: AppState, now: LocalDateTime) : String
+}
+class CommitmentService DOMAIN {
+    + add(state: Snapshot, ...) : Snapshot
+    + addContinuousBlock(state: Snapshot, ...) : Snapshot
+    + addDailyBlocks(state: Snapshot, ...) : Snapshot
+    + edit(state: Snapshot, commitmentId: int, ...) : Snapshot
+    + skip(state: Snapshot, commitmentId: int, date: LocalDate) : Snapshot
+    + delete(state: Snapshot, commitmentId: int) : Snapshot
+    + list(state: Snapshot) : List<Commitment>
+    - rejectOverlaps(added: Commitment, existing: List<Commitment>) : void
+}
+class Commitment <<record>> VALUES {
+    - id: int
+    - name: String
+    - day: DayOfWeek
+    - start: LocalTime
+    - durationMinutes: int
+    - startDate: LocalDate
+    - endDate: LocalDate
+    - skippedDates: Set<LocalDate>
+    + isOneTime() : boolean
+    + recursOn(date: LocalDate) : boolean
+    + occursOn(date: LocalDate) : boolean
+    + overlaps(other: Commitment) : boolean
+}
+class AppState SHELL
+class TextRenderer SHELL
+interface Storage <<interface>> PERSISTENCE
+class Snapshot <<record>> VALUES
+class TaskService DOMAIN
+interface Planner <<interface>> DOMAIN
+class RecurringTaskService DOMAIN
+class ScheduleService DOMAIN
+
+CommandDispatcher --> "commitments\n1" CommitmentService
+CommandDispatcher --> "tasks\n1" TaskService
+CommandDispatcher --> "storage\n1" Storage
+CommandDispatcher --> "planner\n1" Planner
+CommandDispatcher --> "schedules\n1" ScheduleService
+CommandDispatcher --> "renderer\n1" TextRenderer
+CommandDispatcher --> "recurringTasks\n1" RecurringTaskService
+CommandDispatcher ..> AppState : reads / commits
+CommitmentService ..> Snapshot : returns candidate
+CommitmentService ..> Commitment : creates
+Snapshot --> "commitments\n*" Commitment
+
+note as CommitmentNote
+  Equal startDate and endDate indicate a one-time commitment.
+  Both dates null indicate an unbounded weekly series.
+end note
+CommitmentNote -[dashed]- Commitment
+@enduml

@@ -1,0 +1,66 @@
+@startuml
+!include course-style.puml
+' Gaps reserve space for return labels below their arrows in the course export.
+
+participant "dispatcher:CommandDispatcher" as Dispatcher DOMAIN
+participant "storage:FileStorage" as Storage PERSISTENCE
+participant "codec:StateCodec" as Snapshots PERSISTENCE
+participant "Planner" as Planner <<class>> DOMAIN
+participant "operations:FileStorage.FileOperations" as Operations PERSISTENCE
+participant "Files" as Files <<class>> PERSISTENCE
+
+Dispatcher -> Storage ++ : savePlan(plan)
+note right of Storage
+  Successful save only; publication follows (not shown).
+  Accessors and local text assembly are omitted.
+  On filesystem failure inside writeAtomically,
+  removeTemporaryFile runs:
+  if a path was returned, call operations.deleteIfExists(path),
+  which delegates to Files.deleteIfExists(path).
+  Throw StorageException with the original cause;
+  suppress any cleanup error. No ordinary-move fallback.
+end note
+note right of Planner
+  Planner is a Java interface.
+  Its static validate operation is called at class level.
+end note
+create participant "plans:PlanCodec" as Plans PERSISTENCE
+Storage -> Plans ++ : PlanCodec(codec)
+Plans --> Storage -- : plans
+||16||
+Storage -> Plans ++ : encode(plan)
+Plans -> Planner ++ : validate(plan)
+Planner --> Plans -- : return
+||16||
+Plans -> Snapshots ++ : encodeForPlan(plan.source())
+Snapshots --> Plans -- : complete source text
+||16||
+Plans --> Storage -- : source and frozen-result text
+||16||
+Storage -> Storage ++ : writeAtomically(text)
+Storage -> Files ++ : createDirectories(parent)
+Files --> Storage -- : parent
+||16||
+Storage -> Operations ++ : createTemporaryFile(parent)
+Operations -> Files ++ : createTempFile(parent, ".scheduleflow-", ".tmp")
+Files --> Operations -- : temporaryFile
+||16||
+Operations --> Storage -- : temporaryFile
+||16||
+Storage -> Operations ++ : write(temporaryFile, text)
+Operations -> Files ++ : writeString(temporaryFile, text, UTF_8)
+Files --> Operations -- : temporaryFile
+||16||
+Operations --> Storage -- : return
+||16||
+Storage -> Operations ++ : replace(temporaryFile, file)
+Operations -> Files ++ : move(temporaryFile, file,\nATOMIC_MOVE, REPLACE_EXISTING)
+Files --> Operations -- : file
+||16||
+Operations --> Storage -- : return
+||16||
+Storage --> Storage -- : return
+||16||
+Storage --> Dispatcher -- : return
+||16||
+@enduml

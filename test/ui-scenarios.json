@@ -1,0 +1,1028 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "UI-036",
+      "aim": "Edit a skipped series without obsolete cancellations blocking weekday or range changes",
+      "status": "active",
+      "setup": "Fixed saved plan and two skipped Mondays; three isolated restart sessions",
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|6\nNEXT|1|2|1\nCOMMITMENT|1|MONDAY|10:00|60|2026-11-02|2026-11-30|2026-11-02,2026-11-23|Lecture\nPLAN|2026-11-02T07:00|2027-11-02T00:00|0|0|0\n"
+      },
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "commitment edit C1 d/45",
+              "output": "Error: Duration must be a positive multiple of 30 minutes."
+            },
+            {
+              "input": "schedule 2026-11-02",
+              "output": "=== Schedule for Monday (2026-11-02) ===\nGenerated at: 2026-11-02 07:00\n08:00 - 22:00 | [FREE]"
+            },
+            {
+              "input": "commitment edit C1 from/2026-11-16 until/2026-11-30",
+              "output": "Edited C1: Lecture | Monday 10:00 - 11:00 (60 min) | 2026-11-16 to 2026-11-30"
+            },
+            {
+              "input": "schedule 2026-11-02",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "commitment list",
+              "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Lecture | 2026-11-16 to 2026-11-30 | skipped: 2026-11-23\n\nTotal: 1 recurring commitments across the week."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "commitment list",
+              "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Lecture | 2026-11-16 to 2026-11-30 | skipped: 2026-11-23\n\nTotal: 1 recurring commitments across the week."
+            },
+            {
+              "input": "commitment edit C1 n/Lecture",
+              "output": "Edited C1: Lecture | Monday 10:00 - 11:00 (60 min) | 2026-11-16 to 2026-11-30"
+            },
+            {
+              "input": "commitment list",
+              "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Lecture | 2026-11-16 to 2026-11-30 | skipped: 2026-11-23\n\nTotal: 1 recurring commitments across the week."
+            },
+            {
+              "input": "commitment edit C1 day/TUE",
+              "output": "Edited C1: Lecture | Tuesday 10:00 - 11:00 (60 min) | 2026-11-16 to 2026-11-30"
+            },
+            {
+              "input": "commitment add n/Clash day/TUE start/1000 d/60",
+              "output": "Error: Commitment overlaps C1: Lecture"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "commitment list",
+              "output": "=== Recurring Weekly Commitments ===\n[Tuesday]\nC1. 10:00 - 11:00 | Lecture | 2026-11-16 to 2026-11-30\n\nTotal: 1 recurring commitments across the week."
+            },
+            {
+              "input": "commitment add n/Next day/TUE start/1100 d/30",
+              "output": "Added C2: Next | Tuesday 11:00 - 11:30 (30 min)"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-035",
+      "aim": "Reject a structurally valid frozen plan with impossible credited work before prompting",
+      "status": "active",
+      "setup": "Real task ID and valid interval, but 60 credited minutes exceed the 30-minute source task",
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|6\nNEXT|2|1|1\nTASK2|1|2026-10-06T18:00|30|NORMAL|Draft\nPLAN|2026-10-05T07:00|2027-10-05T00:00|1|0|0\nSESSION|1|2026-10-05T08:00|2026-10-05T09:00|60\n"
+      },
+      "sessions": [{
+        "startup": "Error: Invalid saved plan: Scheduled work plus remainder must equal source remaining work.\n",
+        "exitCode": 1,
+        "steps": []
+      }]
+    },
+    {
+      "id": "UI-034",
+      "aim": "Reopen completed tasks, retain plans on rejection and persist restored work across restarts",
+      "status": "active",
+      "setup": "Completed overdue task and fixed saved plan; isolated data and deterministic responses",
+      "requiredComponents": ["CommandParser.parse", "TaskService.reopen", "CommandDispatcher.execute",
+        "TextRenderer.taskReopened", "FileStorage.save", "FileStorage.load"],
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|6\nNEXT|3|1|1\nTASK2|2|2000-01-01T09:00|0|NORMAL|Draft\nPLAN|2026-10-24T07:00|2027-10-24T00:00|0|0|0\n"
+      },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "task reopen T9 remaining/45", "output": "Error: Unknown task ID: T9" },
+          { "input": "task reopen T2", "output": "Error: Invalid command format or missing fields\nExpected: task reopen TNUMBER remaining/MINUTES" },
+          { "input": "task reopen T2 remaining/0", "output": "Error: Invalid command format or missing fields\nExpected: task reopen TNUMBER remaining/MINUTES" },
+          { "input": "task reopen T2 remaining/2147483648", "output": "Error: Number must fit in a positive 32-bit integer\nExpected: task reopen TNUMBER remaining/MINUTES" },
+          { "input": "schedule 2026-10-24", "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 22:00 | [FREE]" },
+          { "input": "task reopen T2 remaining/45", "output": "Reopened T2: Draft | Remaining: 45 min" },
+          { "input": "schedule 2026-10-24", "output": "No current plan. Run plan to generate one." },
+          { "input": "task list completed", "output": "No completed tasks found." },
+          { "input": "task reopen T2 remaining/60", "output": "Error: Only completed tasks can be reopened." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 45 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 45 min\nT2: Draft | Unallocated: 45 min | Reason: deadline passed" },
+          { "input": "task progress T2 done/45", "output": "Recorded progress for T2: Draft | Credited: 45 min | Remaining: 0 min" },
+          { "input": "task reopen T2 remaining/1", "output": "Reopened T2: Draft | Remaining: 1 min" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 1 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "task list completed", "output": "No completed tasks found." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-028",
+      "aim": "Study policy settings validate, retain no-ops and survive set/reset restarts",
+      "status": "active",
+      "setup": "Empty isolated store; legacy unrestricted defaults",
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "policy show",
+              "output": "Study policy: unrestricted (no session limit or required break)."
+            },
+            {
+              "input": "policy set max/60 break/30",
+              "output": "Study policy: Maximum continuous work: 60 min | Required break: 30 min\nSaved study policy. Run plan to regenerate."
+            },
+            {
+              "input": "plan",
+              "output": "No tasks to schedule."
+            },
+            {
+              "input": "policy set max/60 break/30",
+              "output": "Study policy: Maximum continuous work: 60 min | Required break: 30 min\nStudy policy unchanged."
+            },
+            {
+              "input": "policy set max/45 break/30",
+              "output": "Error: Study limit and break duration must be positive multiples of 30 minutes."
+            },
+            {
+              "input": "policy show",
+              "output": "Study policy: Maximum continuous work: 60 min | Required break: 30 min"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "policy show",
+              "output": "Study policy: Maximum continuous work: 60 min | Required break: 30 min"
+            },
+            {
+              "input": "policy reset",
+              "output": "Study policy: unrestricted (no session limit or required break).\nSaved study policy. Run plan to regenerate."
+            },
+            {
+              "input": "policy reset",
+              "output": "Study policy: unrestricted (no session limit or required break).\nStudy policy unchanged."
+            },
+            {
+              "input": "policy set max/90 break/0",
+              "output": "Error: Study limit and break duration must be positive multiples of 30 minutes."
+            },
+            {
+              "input": "policy show",
+              "output": "Study policy: unrestricted (no session limit or required break)."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "policy show",
+              "output": "Study policy: unrestricted (no session limit or required break)."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-029",
+      "aim": "A policy-bearing saved plan restores exact BREAK rows and clears only after a changed policy",
+      "status": "active",
+      "setup": "Fixed version 8 plan; real allocation under settings is covered by fixed-clock JUnit",
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|8\nNEXT|2|1|1\nTASK2|1|2026-10-24T12:00|180|NORMAL|Work\nPOLICY|60|30\nPLAN|2026-10-24T07:00|2027-10-24T00:00|3|0|2\nSESSION|1|2026-10-24T08:00|2026-10-24T09:00|60\nSESSION|1|2026-10-24T09:30|2026-10-24T10:30|60\nSESSION|1|2026-10-24T11:00|2026-10-24T12:00|60\nBREAK|2026-10-24T09:00|2026-10-24T09:30\nBREAK|2026-10-24T10:30|2026-10-24T11:00\n"
+      },
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "policy show",
+              "output": "Study policy: Maximum continuous work: 60 min | Required break: 30 min"
+            },
+            {
+              "input": "schedule 2026-10-24",
+              "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 09:00 | [TASK] T1: Work (60 min)\n09:00 - 09:30 | [BREAK]\n09:30 - 10:30 | [TASK] T1: Work (60 min)\n10:30 - 11:00 | [BREAK]\n11:00 - 12:00 | [TASK] T1: Work (60 min)\n12:00 - 22:00 | [FREE]"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "schedule 2026-10-24",
+              "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 09:00 | [TASK] T1: Work (60 min)\n09:00 - 09:30 | [BREAK]\n09:30 - 10:30 | [TASK] T1: Work (60 min)\n10:30 - 11:00 | [BREAK]\n11:00 - 12:00 | [TASK] T1: Work (60 min)\n12:00 - 22:00 | [FREE]"
+            },
+            {
+              "input": "policy set max/90 break/30",
+              "output": "Study policy: Maximum continuous work: 90 min | Required break: 30 min\nSaved study policy. Run plan to regenerate."
+            },
+            {
+              "input": "schedule 2026-10-24",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "policy show",
+              "output": "Study policy: Maximum continuous work: 90 min | Required break: 30 min"
+            },
+            {
+              "input": "schedule 2026-10-24",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-033",
+      "aim": "Complete a task and view retained completed records across restart",
+      "status": "active",
+      "setup": "Legacy overdue task; isolated data and deterministic outputs",
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|3|1\nTASK|2|2000-01-01T09:00|60|Draft\n"
+      },
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "task list completed",
+              "output": "No completed tasks found."
+            },
+            {
+              "input": "task complete T9",
+              "output": "Error: Unknown task ID: T9"
+            },
+            {
+              "input": "task complete T2",
+              "output": "Completed T2: Draft"
+            },
+            {
+              "input": "task list completed",
+              "output": "=== Completed Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 0 min | 2000-01-01 09:00\nTotal: 1 task(s)."
+            },
+            {
+              "input": "plan",
+              "output": "Study plan generated successfully! Type 'schedule today' to view your sessions."
+            },
+            {
+              "input": "task complete T2",
+              "output": "Completed T2: Draft"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "task list completed",
+              "output": "=== Completed Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 0 min | 2000-01-01 09:00\nTotal: 1 task(s)."
+            },
+            {
+              "input": "task remaining T2 remaining/30",
+              "output": "Error: Reopen the completed task before revising remaining work."
+            },
+            {
+              "input": "task list completed",
+              "output": "=== Completed Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 0 min | 2000-01-01 09:00\nTotal: 1 task(s)."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-032",
+      "aim": "Saved recurrence, exact work and reserved breaks survive restart; progress invalidates only the plan",
+      "status": "active",
+      "setup": "Frozen version 6 plan with a generated occurrence and partial-slot work",
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|6\nNEXT|3|1|2\nTASK2|1|NONE|17|HIGH|Undated\nOCCURRENCE|2|2026-10-26T18:00|45|NORMAL|1|2026-10-26T18:00|Weekly\nRECURRING|1|2026-10-26T18:00|60|2026-10-26|2026-10-26T18:00|Weekly\nPLAN|2026-10-24T07:00|2027-10-24T00:00|2|0|1\nSESSION|1|2026-10-24T08:00|2026-10-24T08:30|17\nSESSION|2|2026-10-24T08:30|2026-10-24T09:30|45\nBREAK|2026-10-24T09:30|2026-10-24T10:00\n"
+      },
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "schedule 2026-10-24",
+              "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 08:30 | [TASK] T1: Undated (30 min)\n08:30 - 09:30 | [TASK] T2: Weekly (60 min)\n09:30 - 10:00 | [BREAK]\n10:00 - 22:00 | [FREE]"
+            },
+            {
+              "input": "task recur list",
+              "output": "=== Weekly Recurring Tasks ===\nR1 | Weekly | Weekly from: 2026-10-26 18:00 | Duration: 60 min | Until: 2026-10-26\nTotal: 1 recurring task(s)."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "schedule 2026-10-24",
+              "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 08:30 | [TASK] T1: Undated (30 min)\n08:30 - 09:30 | [TASK] T2: Weekly (60 min)\n09:30 - 10:00 | [BREAK]\n10:00 - 22:00 | [FREE]"
+            },
+            {
+              "input": "task progress T2 done/15",
+              "output": "Recorded progress for T2: Weekly | Credited: 15 min | Remaining: 30 min"
+            },
+            {
+              "input": "schedule 2026-10-24",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "schedule 2026-10-24",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "task recur list",
+              "output": "=== Weekly Recurring Tasks ===\nR1 | Weekly | Weekly from: 2026-10-26 18:00 | Duration: 60 min | Until: 2026-10-26\nTotal: 1 recurring task(s)."
+            },
+            {
+              "input": "task list",
+              "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT1 | Undated | 17 min | No deadline\nT2 | Weekly | 30 min | 2026-10-26 18:00\nTotal: 2 task(s)."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-030", "aim": "Record exact minute and session progress, retain completed tasks and persist across restarts",
+      "status": "active", "setup": "One overdue saved task; fixed outputs independent of the current date",
+      "requiredComponents": ["CommandParser.parse", "TaskService.recordWork", "TaskService.recordSessionProgress",
+        "CommandDispatcher.execute", "TextRenderer.taskProgressUpdated", "FileStorage.save", "FileStorage.load"],
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|3|1\nTASK|2|2000-01-01T09:00|90|Draft\n"
+      },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 90 min\nT2: Draft | Unallocated: 90 min | Reason: deadline passed" },
+          { "input": "task progress T2 done/30", "output": "Recorded progress for T2: Draft | Credited: 30 min | Remaining: 60 min" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "task progress T2 session/61 percent/25", "output": "Recorded progress for T2: Draft | Credited: 15 min | Remaining: 45 min" },
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 45 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 45 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 45 min\nT2: Draft | Unallocated: 45 min | Reason: deadline passed" },
+          { "input": "task progress T2 done/0", "output": "Recorded progress for T2: Draft | Credited: 0 min | Remaining: 45 min" },
+          { "input": "task progress T2 session/1 percent/1", "output": "Recorded progress for T2: Draft | Credited: 0 min | Remaining: 45 min" },
+          { "input": "task progress T2 done/46", "output": "Error: Reported work must be between zero and the remaining estimate." },
+          { "input": "task progress T9 done/1", "output": "Error: Unknown task ID: T9" },
+          { "input": "task progress T2 done/45", "output": "Recorded progress for T2: Draft | Credited: 45 min | Remaining: 0 min" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "task progress T2 done/0", "output": "Error: Reopen the completed task before recording work." },
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 0 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 0 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-021",
+      "aim": "Unavailable study periods reuse one-time commitments with plan invalidation, restart and release",
+      "status": "active",
+      "setup": "No data file; a date-specific study window and one unavailable period",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "hours 2026-10-26 /start 09:00 /end 12:00", "output": "Study hours for 2026-10-26: 09:00 - 12:00\nSaved study hours. Run plan to regenerate." },
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "commitment add n/Unavailable on/2026-10-26 start/1000 d/60", "output": "Added C1: Unavailable | One-time on 2026-10-26 (Monday) 10:00 - 11:00 (60 min)" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "hours 2026-10-26", "output": "Study hours for 2026-10-26: 09:00 - 12:00" },
+          { "input": "commitment list", "output": "=== One-time Commitments ===\nC1. 2026-10-26 (Monday) 10:00 - 11:00 | Unavailable\nTotal: 1 one-time commitments." },
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "commitment delete C1", "output": "Deleted commitment C1: Unavailable" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "No commitments found." },
+          { "input": "hours 2026-10-26", "output": "Study hours for 2026-10-26: 09:00 - 12:00" },
+          { "input": "commitment add n/Unavailable again on/2026-10-26 start/1000 d/60", "output": "Added C2: Unavailable again | One-time on 2026-10-26 (Monday) 10:00 - 11:00 (60 min)" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-019", "aim": "Revise remaining task time, reject invalid values, invalidate a plan and persist across restarts",
+      "status": "active", "setup": "One overdue saved task; no dependence on the current date",
+      "requiredComponents": ["CommandParser.parse", "TaskService.reviseRemaining",
+        "CommandDispatcher.execute", "TextRenderer.taskRemainingUpdated", "FileStorage.save", "FileStorage.load"],
+      "files": {
+        "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|3|1\nTASK|2|2000-01-01T09:00|30|Draft\n"
+      },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 30 min\nT2: Draft | Unallocated: 30 min | Reason: deadline passed" },
+          { "input": "task remaining T2 remaining/45", "output": "Remaining time for T2: Draft | 45 min" },
+          { "input": "task remaining T9 remaining/90", "output": "Error: Unknown task ID: T9" },
+          { "input": "task remaining T2 remaining/90", "output": "Remaining time for T2: Draft | 90 min" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 90 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 90 min\nT2: Draft | Unallocated: 90 min | Reason: deadline passed" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 90 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "task remaining T2 remaining/30", "output": "Remaining time for T2: Draft | 30 min" },
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 30 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Draft | 30 min | 2000-01-01 09:00\nTotal: 1 task(s)." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-018", "aim": "One-time commitments block one date, validate input, persist and support edit/delete",
+      "status": "active", "setup": "No data file; one weekly series and dated one-time commitments",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Lecture day/FRI start/1000 d/60", "output": "Added C1: Lecture | Friday 10:00 - 11:00 (60 min)" },
+          { "input": "commitment add n/Project meeting on/2026-10-30 start/1400 d/60", "output": "Added C2: Project meeting | One-time on 2026-10-30 (Friday) 14:00 - 15:00 (60 min)" },
+          { "input": "commitment add n/Clash on/2026-10-30 start/1030 d/60", "output": "Error: Commitment overlaps C1: Lecture" },
+          { "input": "commitment add n/Overlap on/2026-10-30 start/1430 d/30", "output": "Error: Commitment overlaps C2: Project meeting" },
+          { "input": "commitment add n/Bad date on/2026-02-30 start/1400 d/60", "output": "Error: Invalid date or time\nExpected: commitment add n/NAME day/DAY start/HHmm d/MINUTES [from/YYYY-MM-DD until/YYYY-MM-DD] OR commitment add n/NAME on/YYYY-MM-DD start/HHmm d/MINUTES" },
+          { "input": "commitment add n/Bad year on/0000-01-01 start/1400 d/60", "output": "Error: Year must be between 0001 and 9999\nExpected: commitment add n/NAME day/DAY start/HHmm d/MINUTES [from/YYYY-MM-DD until/YYYY-MM-DD] OR commitment add n/NAME on/YYYY-MM-DD start/HHmm d/MINUTES" },
+          { "input": "commitment add n/Bad time on/2026-10-30 start/2400 d/30", "output": "Error: Invalid date or time\nExpected: commitment add n/NAME day/DAY start/HHmm d/MINUTES [from/YYYY-MM-DD until/YYYY-MM-DD] OR commitment add n/NAME on/YYYY-MM-DD start/HHmm d/MINUTES" },
+          { "input": "commitment add n/Bad length on/2026-10-30 start/1500 d/45", "output": "Error: Duration must be a positive multiple of 30 minutes." },
+          { "input": "commitment add n/Mixed on/2026-10-30 start/1500 d/30 from/2026-10-30 until/2026-11-06", "output": "Error: Use on/ for one date or from/ and until/ for a weekly range, not both\nExpected: commitment add n/NAME day/DAY start/HHmm d/MINUTES [from/YYYY-MM-DD until/YYYY-MM-DD] OR commitment add n/NAME on/YYYY-MM-DD start/HHmm d/MINUTES" },
+          { "input": "commitment add n/Follow-up on/2026-10-30 start/1500 d/30", "output": "Added C3: Follow-up | One-time on 2026-10-30 (Friday) 15:00 - 15:30 (30 min)" },
+          { "input": "commitment skip C2 on/2026-10-30", "output": "Error: C2 is a one-time commitment; use commitment delete instead." },
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Friday]\nC1. 10:00 - 11:00 | Lecture\n\nTotal: 1 recurring commitments across the week.\n\n=== One-time Commitments ===\nC2. 2026-10-30 (Friday) 14:00 - 15:00 | Project meeting\nC3. 2026-10-30 (Friday) 15:00 - 15:30 | Follow-up\nTotal: 2 one-time commitments." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Friday]\nC1. 10:00 - 11:00 | Lecture\n\nTotal: 1 recurring commitments across the week.\n\n=== One-time Commitments ===\nC2. 2026-10-30 (Friday) 14:00 - 15:00 | Project meeting\nC3. 2026-10-30 (Friday) 15:00 - 15:30 | Follow-up\nTotal: 2 one-time commitments." },
+          { "input": "commitment edit C3 day/MON", "output": "Error: C3 is a one-time commitment; use on/YYYY-MM-DD to change its date." },
+          { "input": "commitment edit C3 on/2026-11-06", "output": "Edited C3: Follow-up | One-time on 2026-11-06 (Friday) 15:00 - 15:30 (30 min)" },
+          { "input": "commitment delete C2", "output": "Deleted commitment C2: Project meeting" },
+          { "input": "commitment add n/Next meeting on/2026-11-06 start/1400 d/60", "output": "Added C4: Next meeting | One-time on 2026-11-06 (Friday) 14:00 - 15:00 (60 min)" },
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Friday]\nC1. 10:00 - 11:00 | Lecture\n\nTotal: 1 recurring commitments across the week.\n\n=== One-time Commitments ===\nC4. 2026-11-06 (Friday) 14:00 - 15:00 | Next meeting\nC3. 2026-11-06 (Friday) 15:00 - 15:30 | Follow-up\nTotal: 2 one-time commitments." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-017", "aim": "Skipped recurring occurrences validate, free conflicts and survive restart",
+      "status": "active", "setup": "No data file; one bounded recurring commitment",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Lecture day/MON start/1000 d/60 from/2026-10-19 until/2026-11-02", "output": "Added C1: Lecture | Monday 10:00 - 11:00 (60 min) | 2026-10-19 to 2026-11-02" },
+          { "input": "commitment skip C1 on/2026-10-26", "output": "Skipped C1 on 2026-10-26: Lecture" },
+          { "input": "commitment skip C1 on/2026-10-26", "output": "Error: C1 is already skipped on 2026-10-26." },
+          { "input": "commitment skip C1 on/2026-10-27", "output": "Error: C1 has no occurrence on 2026-10-27." },
+          { "input": "commitment skip C9 on/2026-10-26", "output": "Error: Unknown commitment ID: C9" },
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Lecture | 2026-10-19 to 2026-11-02 | skipped: 2026-10-26\n\nTotal: 1 recurring commitments across the week." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Lecture | 2026-10-19 to 2026-11-02 | skipped: 2026-10-26\n\nTotal: 1 recurring commitments across the week." },
+          { "input": "commitment add n/Replacement day/MON start/1030 d/30 from/2026-10-26 until/2026-10-26", "output": "Added C2: Replacement | One-time on 2026-10-26 (Monday) 10:30 - 11:00 (30 min)" },
+          { "input": "commitment add n/Clash day/MON start/1030 d/30 from/2026-11-02 until/2026-11-02", "output": "Error: Commitment overlaps C1: Lecture" },
+          { "input": "commitment add n/Available ID day/TUE start/1000 d/30", "output": "Added C3: Available ID | Tuesday 10:00 - 10:30 (30 min)" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-016", "aim": "Recurring commitment date bounds validate, persist and control overlap",
+      "status": "active", "setup": "No data file; bounded and unbounded weekly series",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Semester one day/MON start/1000 d/60 from/2026-08-10 until/2026-11-16", "output": "Added C1: Semester one | Monday 10:00 - 11:00 (60 min) | 2026-08-10 to 2026-11-16" },
+          { "input": "commitment add n/No Monday day/MON start/1200 d/30 from/2026-08-11 until/2026-08-16", "output": "Error: Commitment date range must contain its weekday." },
+          { "input": "commitment add n/Semester two day/MON start/1000 d/60 from/2027-01-11 until/2027-05-03", "output": "Added C2: Semester two | Monday 10:00 - 11:00 (60 min) | 2027-01-11 to 2027-05-03" },
+          { "input": "commitment add n/Clash day/MON start/1030 d/30 from/2026-10-05 until/2026-10-26", "output": "Error: Commitment overlaps C1: Semester one" },
+          { "input": "commitment edit C2 from/2027-01-18 until/2027-05-10", "output": "Edited C2: Semester two | Monday 10:00 - 11:00 (60 min) | 2027-01-18 to 2027-05-10" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC1. 10:00 - 11:00 | Semester one | 2026-08-10 to 2026-11-16\nC2. 10:00 - 11:00 | Semester two | 2027-01-18 to 2027-05-10\n\nTotal: 2 recurring commitments across the week." },
+          { "input": "commitment add n/Forever day/MON start/1000 d/60", "output": "Error: Commitment overlaps C1: Semester one; C2: Semester two" },
+          { "input": "commitment add n/Available ID day/TUE start/1000 d/30", "output": "Added C3: Available ID | Tuesday 10:00 - 10:30 (30 min)" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "requiredComponents": [
+        "Main.main",
+        "CommandParser.parse",
+        "CommandDispatcher.execute",
+        "StateCodec.encode",
+        "StateCodec.decode"
+      ],
+      "id": "UI-015",
+      "aim": "Study hours precedence, validation, reset, plan invalidation and restart",
+      "status": "active",
+      "setup": "No data file; isolated saved settings",
+      "sessions": [
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "hours tuesday",
+              "output": "Study hours for tuesday: 08:00 - 22:00"
+            },
+            {
+              "input": "hours tuesday /start 09:00 /end 22:00",
+              "output": "Study hours for tuesday: 09:00 - 22:00\nSaved study hours. Run plan to regenerate."
+            },
+            {
+              "input": "hours 2026-10-27 /start 14:00 /end 19:00",
+              "output": "Study hours for 2026-10-27: 14:00 - 19:00\nSaved study hours. Run plan to regenerate."
+            },
+            {
+              "input": "hours 2026-11-03",
+              "output": "Study hours for 2026-11-03: 09:00 - 22:00"
+            },
+            {
+              "input": "hours wednesday",
+              "output": "Study hours for wednesday: 08:00 - 22:00"
+            },
+            {
+              "input": "hours tuesday /start 09:15 /end 22:00",
+              "output": "Error: Study hours must use half-hour boundaries (:00 or :30)."
+            },
+            {
+              "input": "hours tuesday /start 22:00 /end 09:00",
+              "output": "Error: Study start must be before end on the same day."
+            },
+            {
+              "input": "hours tuesday",
+              "output": "Study hours for tuesday: 09:00 - 22:00"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "hours tuesday",
+              "output": "Study hours for tuesday: 09:00 - 22:00"
+            },
+            {
+              "input": "hours 2026-10-27",
+              "output": "Study hours for 2026-10-27: 14:00 - 19:00"
+            },
+            {
+              "input": "plan",
+              "output": "No tasks to schedule."
+            },
+            {
+              "input": "hours reset 2026-10-27",
+              "output": "Reset study hours for 2026-10-27.\nUsing recurring weekday hours: 09:00 - 22:00.\nRun plan to regenerate."
+            },
+            {
+              "input": "schedule today",
+              "output": "No current plan. Run plan to generate one."
+            },
+            {
+              "input": "hours reset tuesday",
+              "output": "Reset study hours for tuesday.\nUsing default hours: 08:00 - 22:00.\nRun plan to regenerate."
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        },
+        {
+          "startup": "",
+          "steps": [
+            {
+              "input": "hours 2026-10-27",
+              "output": "Study hours for 2026-10-27: 08:00 - 22:00"
+            },
+            {
+              "input": "exit",
+              "output": "Goodbye for now!",
+              "exitCode": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "UI-014", "aim": "Commitment edits preserve IDs, reject invalid replacements and survive restart",
+      "status": "active", "setup": "Empty store; weekly events with adjacent and conflicting edits",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Lecture day/MON start/1000 d/60", "output": "Added C1: Lecture | Monday 10:00 - 11:00 (60 min)" },
+          { "input": "commitment add n/Lab day/MON start/1200 d/60", "output": "Added C2: Lab | Monday 12:00 - 13:00 (60 min)" },
+          { "input": "hours monday /start 14:00 /end 19:00", "output": "Study hours for monday: 14:00 - 19:00\nSaved study hours. Run plan to regenerate." },
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "commitment edit C1 n/新 lecture", "output": "Edited C1: 新 lecture | Monday 10:00 - 11:00 (60 min)" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "commitment edit C1 d/120", "output": "Edited C1: 新 lecture | Monday 10:00 - 12:00 (120 min)" },
+          { "input": "commitment edit C1 start/1100", "output": "Error: Commitment overlaps C2: Lab" },
+          { "input": "commitment edit C1", "output": "Error: Provide at least one commitment field to edit." },
+          { "input": "commitment edit C99 n/Missing", "output": "Error: Unknown commitment ID: C99" },
+          { "input": "commitment edit C1 start/2330", "output": "Error: Commitment must not continue past midnight." },
+          { "input": "commitment edit C1 d/30 n/Reordered", "output": "Error: Invalid command format or missing fields\nExpected: commitment edit CNUMBER [n/NAME] [day/DAY|on/YYYY-MM-DD] [start/HHmm] [d/MINUTES] [from/YYYY-MM-DD until/YYYY-MM-DD]" },
+          { "input": "commitment edit C1 day/SUN start/2330 d/30", "output": "Edited C1: 新 lecture | Sunday 23:30 - 24:00 (30 min)" },
+          { "input": "hours monday", "output": "Study hours for monday: 14:00 - 19:00" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC2. 12:00 - 13:00 | Lab\n\n[Sunday]\nC1. 23:30 - 24:00 | 新 lecture\n\nTotal: 2 recurring commitments across the week." },
+          { "input": "hours monday", "output": "Study hours for monday: 14:00 - 19:00" },
+          { "input": "commitment add n/New day/MON start/1000 d/60", "output": "Added C3: New | Monday 10:00 - 11:00 (60 min)" },
+          { "input": "commitment edit C1 n/新 lecture", "output": "Edited C1: 新 lecture | Sunday 23:30 - 24:00 (30 min)" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-013", "aim": "Multiple conflicts are chronological and rejection preserves IDs and saved data",
+      "status": "active", "setup": "Empty store; add same-day commitments in reverse chronological order",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Seminar day/MON start/1100 d/60", "output": "Added C1: Seminar | Monday 11:00 - 12:00 (60 min)" },
+          { "input": "commitment add n/Lecture day/MON start/0900 d/60", "output": "Added C2: Lecture | Monday 09:00 - 10:00 (60 min)" },
+          { "input": "commitment add n/Workshop day/MON start/0900 d/180", "output": "Error: Commitment overlaps C2: Lecture; C1: Seminar" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Monday]\nC2. 09:00 - 10:00 | Lecture\nC1. 11:00 - 12:00 | Seminar\n\nTotal: 2 recurring commitments across the week." },
+          { "input": "commitment add n/Gap day/MON start/1000 d/60", "output": "Added C3: Gap | Monday 10:00 - 11:00 (60 min)" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "requiredComponents": ["Main.main","App.run","ConsoleUi.prompt","ConsoleUi.readLine","ConsoleUi.write","FileStorage.load","StateCodec.decode","CommandParser.parse","CommandDispatcher.execute","TaskService.list","CommitmentService.list","TextRenderer.tasks","TextRenderer.commitments","TextRenderer.noPlan","TextRenderer.exit"],
+      "id": "UI-001", "aim": "First launch has empty lists and no plan",
+      "status": "active", "setup": "No data file; Printing and Save implemented",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "task list", "output": "No tasks found." },
+        { "input": "commitment list", "output": "No commitments found." },
+        { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "requiredComponents": ["Main.main","App.run","ConsoleUi.prompt","ConsoleUi.readLine","ConsoleUi.write","FileStorage.load","FileStorage.save","StateCodec.decode","StateCodec.encode","CommandParser.parse","CommandDispatcher.execute","CommitmentService.add","CommitmentService.delete","CommitmentService.list","TextRenderer.commitmentAdded","TextRenderer.commitmentDeleted","TextRenderer.commitments","TextRenderer.noPlan","TextRenderer.exit"],
+      "id": "UI-002", "aim": "Midnight, adjacency and counters survive deletion and restart",
+      "status": "active", "setup": "No data file; Commitment, Save and Printing implemented",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/Late day/MON start/2330 d/30", "output": "Added C1: Late | Monday 23:30 - 24:00 (30 min)" },
+          { "input": "commitment add n/Earlier day/MON start/2300 d/30", "output": "Added C2: Earlier | Monday 23:00 - 23:30 (30 min)" },
+          { "input": "commitment delete C1", "output": "Deleted commitment C1: Late" },
+          { "input": "commitment delete C2", "output": "Deleted commitment C2: Earlier" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "No commitments found." },
+          { "input": "commitment add n/Restart day/TUE start/1000 d/30", "output": "Added C3: Restart | Tuesday 10:00 - 10:30 (30 min)" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "requiredComponents": ["Main.main","App.run","ConsoleUi.prompt","ConsoleUi.readLine","ConsoleUi.write","FileStorage.load","StateCodec.decode","TextRenderer.exit"],
+      "id": "UI-003", "aim": "EOF terminates normally",
+      "status": "active", "setup": "No data file; Save and Printing implemented",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": null, "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "requiredComponents": ["Main.main","App.run","FileStorage.load","StateCodec.decode","ConsoleUi.write","TextRenderer.error"],
+      "id": "UI-004", "aim": "Corrupt store terminates before prompting",
+      "status": "active", "setup": "Unsupported version; Save and Printing implemented",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|99\nNEXT|1|1\n" },
+      "sessions": [{ "startup": "Error: Unsupported file version: 99\n", "steps": [], "exitCode": 1 }]
+    },
+    {
+      "requiredComponents": ["Main.main","App.run","ConsoleUi.prompt","ConsoleUi.readLine","ConsoleUi.write","FileStorage.load","StateCodec.decode","CommandParser.parse","CommandDispatcher.execute","TextRenderer.parseError","TextRenderer.exit"],
+      "id": "UI-005", "aim": "Syntax errors include command usage and allow subsequent commands",
+      "status": "active", "setup": "No data file; parser and console integration implemented",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "task add n/A due/2026-02-30 0900 d/30", "output": "Error: Invalid date or time\nExpected: task add n/NAME due/YYYY-MM-DD HHmm d/MINUTES" },
+        { "input": "task add n/A n/B due/2026-10-06 0900 d/30", "output": "Error: Invalid command format or missing fields\nExpected: task add n/NAME due/YYYY-MM-DD HHmm d/MINUTES" },
+        { "input": "task delete 1", "output": "Error: Invalid command format or missing fields\nExpected: task delete TNUMBER" },
+        { "input": "task list extra", "output": "Error: Invalid command format or missing fields\nExpected: task list OR task list completed" },
+        { "input": "commitment add n/A day/mon start/1000 d/30", "output": "Error: Invalid command format or missing fields\nExpected: commitment add n/NAME day/DAY start/HHmm d/MINUTES [from/YYYY-MM-DD until/YYYY-MM-DD] OR commitment add n/NAME on/YYYY-MM-DD start/HHmm d/MINUTES" },
+        { "input": "schedule 2026-02-30", "output": "Error: Invalid date or time\nExpected: schedule today OR schedule YYYY-MM-DD" },
+        { "input": "exit extra", "output": "Error: This command accepts no arguments\nExpected: exit" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-006", "aim": "Blank lines and domain errors recover without consuming commitment IDs",
+      "status": "active", "setup": "No data file; full console implemented",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "   ", "output": "", "newline": false },
+        { "input": "commitment add n/Bad day/MON start/1015 d/30", "output": "Error: Commitment start must be on a half-hour boundary." },
+        { "input": "commitment add n/Bad day/MON start/1000 d/45", "output": "Error: Duration must be a positive multiple of 30 minutes." },
+        { "input": "commitment add n/Class day/MON start/1000 d/120", "output": "Added C1: Class | Monday 10:00 - 12:00 (120 min)" },
+        { "input": "commitment add n/Overlap day/MON start/1130 d/60", "output": "Error: Commitment overlaps C1: Class" },
+        { "input": "commitment delete C9", "output": "Error: Unknown commitment ID: C9" },
+        { "input": "task delete T9", "output": "Error: Unknown task ID: T9" },
+        { "input": "commitment add n/Adjacent day/MON start/1200 d/30", "output": "Added C2: Adjacent | Monday 12:00 - 12:30 (30 min)" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-007", "aim": "Unicode commitments persist across packaged application restarts",
+      "status": "active", "setup": "No data file; full console implemented",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "commitment add n/学习 Café day/TUE start/1000 d/30", "output": "Added C1: 学习 Café | Tuesday 10:00 - 10:30 (30 min)" },
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== Recurring Weekly Commitments ===\n[Tuesday]\nC1. 10:00 - 10:30 | 学习 Café\n\nTotal: 1 recurring commitments across the week." },
+          { "input": "commitment delete C1", "output": "Deleted commitment C1: 学习 Café" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": null, "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-008", "aim": "Truncated saved record stops startup before prompting",
+      "status": "active", "setup": "Invalid record; Save and Printing implemented",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|2|1\nTASK|1\n" },
+      "sessions": [{ "startup": "Error: Missing saved record fields.\n", "steps": [], "exitCode": 1 }]
+    },
+    {
+      "id": "UI-031", "aim": "A saved study plan survives restart and a successful task change invalidates it",
+      "status": "active", "setup": "Frozen version 6 plan generated at a fixed time",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|6\nNEXT|2|1|1\nTASK2|1|2026-10-26T18:00|30|NORMAL|Draft\nPLAN|2026-10-24T07:00|2027-10-24T00:00|1|0|0\nSESSION|1|2026-10-24T08:00|2026-10-24T08:30|30\n" },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "schedule 2026-10-24", "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 08:30 | [TASK] T1: Draft (30 min)\n08:30 - 22:00 | [FREE]" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "schedule 2026-10-24", "output": "=== Schedule for Saturday (2026-10-24) ===\nGenerated at: 2026-10-24 07:00\n08:00 - 08:30 | [TASK] T1: Draft (30 min)\n08:30 - 22:00 | [FREE]" },
+          { "input": "task delete T1", "output": "Deleted task T1: Draft" },
+          { "input": "schedule 2026-10-24", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-009", "aim": "Restored tasks retain numeric order, unallocated work and deletion across restart",
+      "status": "active", "setup": "Valid overdue and out-of-horizon tasks in deliberately unsorted storage order",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|11|1\nTASK|10|2000-01-01T09:00|60|Later ID\nTASK|3|9999-12-31T23:59|90|Future\nTASK|2|2000-01-01T09:00|30|Earlier ID\n" },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Earlier ID | 30 min | 2000-01-01 09:00\nT3 | Future | 90 min | 9999-12-31 23:59\nT10 | Later ID | 60 min | 2000-01-01 09:00\nTotal: 3 task(s)." },
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 180 min\nT2: Earlier ID | Unallocated: 30 min | Reason: deadline passed\nT10: Later ID | Unallocated: 60 min | Reason: deadline passed\nT3: Future | Unallocated: 90 min | Reason: outside planning horizon" },
+          { "input": "task add n/Invalid due/2000-01-01 0900 d/30", "output": "Error: Deadline must be in the future." },
+          { "input": "task delete T10", "output": "Deleted task T10: Later ID" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT2 | Earlier ID | 30 min | 2000-01-01 09:00\nT3 | Future | 90 min | 9999-12-31 23:59\nTotal: 2 task(s)." },
+          { "input": "task delete T10", "output": "Error: Unknown task ID: T10" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-010", "aim": "Exhausted task and commitment counters reject additions without overflow",
+      "status": "active", "setup": "Empty valid store with both next-ID counters at Integer.MAX_VALUE",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|2147483647|2147483647\n" },
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "task add n/More due/2000-01-01 0900 d/30", "output": "Error: No more task IDs are available." },
+        { "input": "commitment add n/More day/MON start/1000 d/30", "output": "Error: Commitment IDs are exhausted." },
+        { "input": "task list", "output": "No tasks found." },
+        { "input": "commitment list", "output": "No commitments found." },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-011", "aim": "Overlapping saved commitments reject the complete store before prompting",
+      "status": "active", "setup": "Two individually valid Monday commitments with overlapping intervals",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|1|3\nCOMMITMENT|1|MONDAY|10:00|60|First\nCOMMITMENT|2|MONDAY|10:30|60|Second\n" },
+      "sessions": [{ "startup": "Error: Invalid saved data: Commitments overlap: C1 and C2\n", "steps": [], "exitCode": 1 }]
+    },
+    {
+      "id": "UI-012", "aim": "Large restored task estimates produce whole-plan totals without integer overflow",
+      "status": "active", "setup": "Two overdue tasks with estimates near Integer.MAX_VALUE",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|1\nNEXT|3|1\nTASK|1|2000-01-01T09:00|2147483640|First\nTASK|2|2000-01-01T09:00|2147483640|Second\n" },
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 0 min | Unallocated: 4294967280 min\nT1: First | Unallocated: 2147483640 min | Reason: deadline passed\nT2: Second | Unallocated: 2147483640 min | Reason: deadline passed" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-020", "aim": "Extended saved tasks retain absence and completion, exact work and restart",
+      "status": "active", "setup": "Extended version 2 store; existing commands only, no lifecycle CLI",
+      "files": { "data/scheduleflow.txt": "SCHEDULEFLOW|2\nNEXT|4|1\nTASK2|1|NONE|45|NORMAL|Undated|draft\nTASK2|2|2000-01-01T09:00|0|NORMAL|Completed\nTASK2|3|2000-01-01T09:00|1|NORMAL|Old\nHOURS|monday|09:00|10:00\n" },
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT1 | Undated|draft | 45 min | No deadline\nT2 | Completed | 0 min | 2000-01-01 09:00\nT3 | Old | 1 min | 2000-01-01 09:00\nTotal: 3 task(s)." },
+          { "input": "plan", "output": "Study plan generated with unallocated work.\nScheduled: 45 min | Unallocated: 1 min\nT3: Old | Unallocated: 1 min | Reason: deadline passed" },
+          { "input": "task delete T3", "output": "Deleted task T3: Old" },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "task list", "output": "=== Actionable Tasks ===\nID | Name | Duration | Deadline\nT1 | Undated|draft | 45 min | No deadline\nT2 | Completed | 0 min | 2000-01-01 09:00\nTotal: 2 task(s)." },
+          { "input": "hours monday", "output": "Study hours for monday: 09:00 - 10:00" },
+          { "input": "plan", "output": "Study plan generated successfully! Type 'schedule today' to view your sessions." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-022", "aim": "Continuous range creates midnight-split dated commitments atomically and survives restart",
+      "status": "active", "setup": "Empty isolated store; no tasks; IDs begin at C1",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "unavailable continuous n/Trip from/2026-10-26 1500 until/2026-10-28 1100", "output": "Blocked 3 unavailable periods.\nC1 | 2026-10-26 | 15:00 - 24:00 | Trip\nC2 | 2026-10-27 | 00:00 - 24:00 | Trip\nC3 | 2026-10-28 | 00:00 - 11:00 | Trip\nSaved unavailable periods. Run plan to regenerate." },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "commitment list", "output": "=== One-time Commitments ===\nC1. 2026-10-26 (Monday) 15:00 - 24:00 | Trip\nC2. 2026-10-27 (Tuesday) 00:00 - 24:00 | Trip\nC3. 2026-10-28 (Wednesday) 00:00 - 11:00 | Trip\nTotal: 3 one-time commitments." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-023", "aim": "Daily range creates one window on each inclusive date with independent deletion",
+      "status": "active", "setup": "Empty isolated store; no tasks; IDs begin at C1",
+      "sessions": [
+        { "startup": "", "steps": [
+          { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/1500 end/1700", "output": "Blocked 3 unavailable periods.\nC1 | 2026-10-26 | 15:00 - 17:00 | Appointment\nC2 | 2026-10-27 | 15:00 - 17:00 | Appointment\nC3 | 2026-10-28 | 15:00 - 17:00 | Appointment\nSaved unavailable periods. Run plan to regenerate." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] },
+        { "startup": "", "steps": [
+          { "input": "plan", "output": "No tasks to schedule." },
+          { "input": "commitment delete C2", "output": "Deleted commitment C2: Appointment" },
+          { "input": "schedule today", "output": "No current plan. Run plan to generate one." },
+          { "input": "commitment list", "output": "=== One-time Commitments ===\nC1. 2026-10-26 (Monday) 15:00 - 17:00 | Appointment\nC3. 2026-10-28 (Wednesday) 15:00 - 17:00 | Appointment\nTotal: 2 one-time commitments." },
+          { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+        ] }
+      ]
+    },
+    {
+      "id": "UI-024", "aim": "Invalid ranges, daily windows and syntax reject without creating any records or consuming IDs",
+      "status": "active", "setup": "Empty isolated store; no tasks; IDs begin at C1",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "unavailable continuous n/Trip from/2026-10-26 1500 until/2026-10-26 1500", "output": "Error: Unavailable interval end must be after its start." },
+        { "input": "unavailable continuous n/Trip from/2026-10-28 1500 until/2026-10-26 1100", "output": "Error: Unavailable interval end must be after its start." },
+        { "input": "unavailable daily n/Appointment from/2026-10-28 until/2026-10-26 start/1500 end/1700", "output": "Error: Unavailable date range must start on or before its end." },
+        { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/1500 end/1500", "output": "Error: Daily unavailable start must be before end on the same day." },
+        { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/2300 end/0100", "output": "Error: Daily unavailable start must be before end on the same day." },
+        { "input": "unavailable continuous n/Trip from/2026-10-26 1515 until/2026-10-28 1100", "output": "Error: Unavailable times must be on half-hour boundaries." },
+        { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/1500 end/1715", "output": "Error: Unavailable times must be on half-hour boundaries." },
+        { "input": "unavailable continuous n/Trip from/2026-02-30 1500 until/2026-03-01 1100", "output": "Error: Invalid date or time\nExpected: unavailable continuous n/NAME from/YYYY-MM-DD HHmm until/YYYY-MM-DD HHmm" },
+        { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/1500 end/2400", "output": "Error: Invalid date or time\nExpected: unavailable daily n/NAME from/YYYY-MM-DD until/YYYY-MM-DD start/HHmm end/HHmm" },
+        { "input": "unavailable continuous n/Trip until/2026-10-28 1100 from/2026-10-26 1500", "output": "Error: Invalid unavailable command format\nExpected: unavailable continuous n/NAME from/YYYY-MM-DD HHmm until/YYYY-MM-DD HHmm" },
+        { "input": "commitment list", "output": "No commitments found." },
+        { "input": "commitment add n/Retry on/2026-10-26 start/1500 d/30", "output": "Added C1: Retry | One-time on 2026-10-26 (Monday) 15:00 - 15:30 (30 min)" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-025", "aim": "A conflict on a later continuous segment rejects the entire batch and retains retry IDs",
+      "status": "active", "setup": "Empty isolated store; a conflicting commitment on the intermediate date",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "commitment add n/Busy on/2026-10-27 start/1000 d/60", "output": "Added C1: Busy | One-time on 2026-10-27 (Tuesday) 10:00 - 11:00 (60 min)" },
+        { "input": "unavailable continuous n/Trip from/2026-10-26 1500 until/2026-10-28 1100", "output": "Error: Commitment overlaps C1: Busy" },
+        { "input": "commitment list", "output": "=== One-time Commitments ===\nC1. 2026-10-27 (Tuesday) 10:00 - 11:00 | Busy\nTotal: 1 one-time commitments." },
+        { "input": "commitment add n/Retry on/2026-10-26 start/1500 d/30", "output": "Added C2: Retry | One-time on 2026-10-26 (Monday) 15:00 - 15:30 (30 min)" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-026", "aim": "A conflict on a later daily window rejects all windows and retains retry IDs",
+      "status": "active", "setup": "Empty isolated store; a conflicting commitment on the middle date",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "commitment add n/Busy on/2026-10-27 start/1600 d/30", "output": "Added C1: Busy | One-time on 2026-10-27 (Tuesday) 16:00 - 16:30 (30 min)" },
+        { "input": "unavailable daily n/Appointment from/2026-10-26 until/2026-10-28 start/1500 end/1700", "output": "Error: Commitment overlaps C1: Busy" },
+        { "input": "commitment list", "output": "=== One-time Commitments ===\nC1. 2026-10-27 (Tuesday) 16:00 - 16:30 | Busy\nTotal: 1 one-time commitments." },
+        { "input": "commitment add n/Retry on/2026-10-26 start/1500 d/30", "output": "Added C2: Retry | One-time on 2026-10-26 (Monday) 15:00 - 15:30 (30 min)" },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    },
+    {
+      "id": "UI-027", "aim": "Midnight-exclusive and same-day continuous ends omit empty segments; daily ranges include leap day",
+      "status": "active", "setup": "Empty isolated store; no tasks; IDs begin at C1",
+      "sessions": [{ "startup": "", "steps": [
+        { "input": "unavailable continuous n/Late from/2026-10-26 2300 until/2026-10-27 0000", "output": "Blocked 1 unavailable period.\nC1 | 2026-10-26 | 23:00 - 24:00 | Late\nSaved unavailable periods. Run plan to regenerate." },
+        { "input": "commitment add n/Adjacent on/2026-10-27 start/0000 d/30", "output": "Added C2: Adjacent | One-time on 2026-10-27 (Tuesday) 00:00 - 00:30 (30 min)" },
+        { "input": "unavailable continuous n/Short from/2026-10-28 1000 until/2026-10-28 1100", "output": "Blocked 1 unavailable period.\nC3 | 2026-10-28 | 10:00 - 11:00 | Short\nSaved unavailable periods. Run plan to regenerate." },
+        { "input": "unavailable daily n/Leap from/2028-02-28 until/2028-03-01 start/0030 end/0100", "output": "Blocked 3 unavailable periods.\nC4 | 2028-02-28 | 00:30 - 01:00 | Leap\nC5 | 2028-02-29 | 00:30 - 01:00 | Leap\nC6 | 2028-03-01 | 00:30 - 01:00 | Leap\nSaved unavailable periods. Run plan to regenerate." },
+        { "input": "exit", "output": "Goodbye for now!", "exitCode": 0 }
+      ] }]
+    }
+  ]
+}

@@ -1,0 +1,503 @@
+// @@author Darren50
+package scheduleflow.cli;
+
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import scheduleflow.commitment.CommitmentService;
+import scheduleflow.common.ValidationException;
+import scheduleflow.model.Commitment;
+import scheduleflow.model.RecurringTask;
+import scheduleflow.model.Snapshot;
+import scheduleflow.model.StudyHours;
+import scheduleflow.model.StudyWindow;
+import scheduleflow.model.Task;
+import scheduleflow.planning.Plan;
+import scheduleflow.planning.Planner;
+import scheduleflow.planning.ScheduleService;
+import scheduleflow.planning.StudyPolicy;
+import scheduleflow.storage.Storage;
+import scheduleflow.storage.StorageException;
+import scheduleflow.task.RecurringTaskService;
+import scheduleflow.task.TaskService;
+
+/**
+ * Routes parsed commands and owns the candidate, save, commit, response transaction order.
+ */
+public final class CommandDispatcher {
+    /**
+     * Records command stages and save boundaries without including record names.
+     */
+    private static final Logger LOGGER = Logger.getLogger(CommandDispatcher.class.getName());
+
+    /**
+     * Validates task mutations and supplies ordered task lists.
+     */
+    private final TaskService tasks;
+    /**
+     * Validates weekly-series mutations and supplies ordered commitments.
+     */
+    private final CommitmentService commitments;
+    /**
+     * Persists candidates before they become live state.
+     */
+    private final Storage storage;
+    /**
+     * Generates temporary plans from the current snapshot and captured time.
+     */
+    private final Planner planner;
+    /**
+     * Projects an existing plan for a requested date.
+     */
+    private final ScheduleService schedules;
+    /**
+     * Formats results after their state transitions succeed.
+     */
+    private final TextRenderer renderer;
+    /**
+     * Supplies the single time capture for each command execution.
+     */
+    private final Clock clock;
+
+    /** Materializes immutable weekly-task candidates using the same captured command time. */
+    private final RecurringTaskService recurringTasks = new RecurringTaskService();
+
+    /**
+     * Creates the CommandDispatcher dependencies without performing I/O.
+     *
+     * @param tasks task operations
+     * @param commitments weekly-series operations
+     * @param storage candidate persistence
+     * @param planner temporary-plan generation
+     * @param schedules frozen-plan projection
+     * @param renderer response formatter
+     * @param clock command time source
+     * @throws NullPointerException if any dependency is null
+     */
+    public CommandDispatcher(TaskService tasks, CommitmentService commitments, Storage storage,
+            Planner planner, ScheduleService schedules, TextRenderer renderer, Clock clock) {
+        this.tasks = Objects.requireNonNull(tasks, "tasks");
+        this.commitments = Objects.requireNonNull(commitments, "commitments");
+        this.storage = Objects.requireNonNull(storage, "storage");
+        this.planner = Objects.requireNonNull(planner, "planner");
+        this.schedules = Objects.requireNonNull(schedules, "schedules");
+        this.renderer = Objects.requireNonNull(renderer, "renderer");
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /**
+     * Captures time once and executes the command while preserving state on validation or save failure.
+     *
+     * @param command parsed command to execute
+     * @param state live state to read or update
+     * @return formatted response and termination decision
+     * @throws StorageException if a candidate cannot be saved; live state remains unchanged
+     * @throws NullPointerException if the command or state is null
+     */
+    public CommandResponse execute(Command command, AppState state) throws StorageException {
+        Objects.requireNonNull(command, "command");
+        Objects.requireNonNull(state, "state");
+        LOGGER.log(Level.FINE, "Starting command execution: {0}", command.getClass().getSimpleName());
+        LocalDateTime now = LocalDateTime.now(clock);
+        LOGGER.log(Level.FINE, "Command time captured");
+        String output = switch (command) {
+            case Command.AddContinuousBlock block -> addContinuousBlock(block, state);
+            case Command.AddDailyBlocks blocks -> addDailyBlocks(blocks, state);
+            case Command.Help ignored -> renderer.help();
+            case Command.SetHours hours -> changeHours(hours.target(), state.snapshot().studyHours()
+                    .withWindow(hours.target(), new StudyWindow(hours.start(), hours.end())), state);
+            case Command.ResetHours hours -> resetHours(hours.target(), state);
+            case Command.ShowHours hours -> renderer.hours(hours.target(),
+                    state.snapshot().studyHours().forTarget(hours.target()));
+            case Command.AddTask add -> addTask(add, state, now);
+            case Command.ListTasks ignored -> renderer.tasks(tasks.list(state.snapshot()));
+            case Command.ListCompletedTasks ignored -> renderer.completedTasks(tasks.list(state.snapshot()).stream()
+                    .filter(task -> task.remainingMinutes() == 0).toList());
+            case Command.CompleteTask complete -> completeTask(complete.id(), state);
+            case Command.ShowStudyPolicy ignored -> renderer.studyPolicy(state.snapshot().studyPolicy());
+            case Command.SetStudyPolicy settings -> changePolicy(Optional.of(
+                    new StudyPolicy(settings.maxContinuousMinutes(), settings.breakMinutes())), state);
+            case Command.ResetStudyPolicy ignored -> changePolicy(Optional.empty(), state);
+            case Command.ReopenTask reopen -> reopenTask(reopen, state);
+            case Command.DeleteTask delete -> deleteTask(delete.id(), state);
+            case Command.EditTask edit -> editTask(edit, state, now);
+            case Command.AddRecurringTask add -> addRecurringTask(add, state, now);
+            case Command.ListRecurringTasks ignored -> renderer.recurringTasks(recurringTasks.list(state.snapshot()));
+            case Command.DeleteRecurringTask delete -> deleteRecurringTask(delete.id(), state);
+            case Command.RecordTaskWork work -> recordTaskWork(work, state);
+            case Command.RecordTaskSession session -> recordTaskSession(session, state);
+            case Command.ReviseTaskRemaining revise -> reviseTaskRemaining(revise, state);
+            case Command.AddCommitment add -> addCommitment(add, state);
+            case Command.EditCommitment edit -> editCommitment(edit, state);
+            case Command.SkipCommitment skip -> skipCommitment(skip, state);
+            case Command.ListCommitments ignored -> renderer.commitments(commitments.list(state.snapshot()));
+            case Command.DeleteCommitment delete -> deleteCommitment(delete.id(), state);
+            case Command.GeneratePlan ignored -> generatePlan(state, now);
+            case Command.ScheduleToday ignored -> showSchedule(state, now.toLocalDate());
+            case Command.ScheduleDate schedule -> showSchedule(state, schedule.date());
+            case Command.Exit ignored -> renderer.exit();
+        };
+        CommandResponse response = new CommandResponse(output, command instanceof Command.Exit);
+        LOGGER.log(Level.FINE, "Command execution completed");
+        return response;
+    }
+
+    /** Saves hours before clearing a plan, preserving the live settings and plan if saving fails. */
+    private String changeHours(String target, StudyHours hours, AppState state) throws StorageException {
+        saveAndCommit(state.snapshot().withStudyHours(hours), state);
+        return renderer.hours(target, hours.forTarget(target)) + "\nSaved study hours. Run plan to regenerate.";
+    }
+
+    /** Confirms a reset and its inherited hours only after saving succeeds. */
+    private String resetHours(String target, AppState state) throws StorageException {
+        StudyHours hours = state.snapshot().studyHours().reset(target);
+        saveAndCommit(state.snapshot().withStudyHours(hours), state);
+        return renderer.hoursReset(target, hours);
+    }
+
+    /**
+     * Resolves the allocated ID from the validated candidate before saving and publishing it.
+     */
+    private String addTask(Command.AddTask command, AppState state, LocalDateTime now) throws StorageException {
+        LOGGER.log(Level.FINE, "Validating task addition");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.add(original, command.name(), command.deadline(), command.minutes(), now);
+        Task added = candidate.tasks().stream().filter(task -> task.id() == original.nextTaskId())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Task candidate is missing the allocated ID."));
+        saveAndCommit(candidate, state);
+        return renderer.taskAdded(added);
+    }
+
+    /**
+     * Retains the removed record for output after the service has validated its ID.
+     */
+    private String deleteTask(int id, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Validating task deletion");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.delete(original, id);
+        Task removed = original.tasks().stream().filter(task -> task.id() == id).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated task deletion has no original record."));
+        saveAndCommit(candidate, state);
+        return renderer.taskDeleted(removed);
+    }
+
+    /**
+     * Reopens a completed task through the existing service, saving before publication and plan invalidation.
+     *
+     * @param command existing task ID and explicit positive remaining-work estimate
+     * @param state live snapshot and plan, preserved if validation or saving fails
+     * @return confirmation for the successfully saved reopened task
+     * @throws StorageException if the candidate cannot be saved
+     * @throws ValidationException if the task is unknown, active or the estimate is nonpositive
+     */
+    private String reopenTask(Command.ReopenTask command, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Preparing task reopening");
+        Snapshot candidate = tasks.reopen(state.snapshot(), command.id(), command.remainingMinutes());
+        Task reopened = candidate.tasks().stream().filter(task -> task.id() == command.id()).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated reopening is missing its target."));
+        String confirmation = renderer.taskReopened(reopened);
+        saveAndCommit(candidate, state);
+        return confirmation;
+    }
+
+    /** Saves changed completion before publication; repeated completion preserves disk and the current plan. */
+    private String completeTask(int id, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Preparing task completion");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.complete(original, id);
+        Task completed = candidate.tasks().stream().filter(task -> task.id() == id).findFirst().orElseThrow();
+        String output = renderer.taskCompleted(completed);
+        if (candidate != original) {
+            saveAndCommit(candidate, state);
+        }
+        return output;
+    }
+
+    /** Saves a changed policy before publication and plan invalidation; normalized no-ops preserve the plan. */
+    private String changePolicy(Optional<StudyPolicy> policy, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Preparing study policy change");
+        Snapshot candidate = state.snapshot().withStudyPolicy(policy);
+        boolean changed = candidate != state.snapshot();
+        String output = renderer.studyPolicyUpdated(policy, changed);
+        if (changed) {
+            saveAndCommit(candidate, state);
+        }
+        return output;
+    }
+
+    /** Saves changed details before publication; normalized no-ops preserve both disk and current plan. */
+    private String editTask(Command.EditTask command, AppState state, LocalDateTime now) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.edit(original, command.id(), command.edit(), now);
+        Task edited = candidate.tasks().stream().filter(task -> task.id() == command.id()).findFirst().orElseThrow();
+        String confirmation = renderer.taskEdited(edited);
+        if (candidate != original) {
+            saveAndCommit(candidate, state);
+        }
+        return confirmation;
+    }
+
+    /** Saves a template, generated tasks, processing cursors and all counters in one transaction. */
+    private String addRecurringTask(Command.AddRecurringTask command, AppState state, LocalDateTime now)
+            throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = recurringTasks.add(original, command.name(), command.firstDeadline(), command.minutes(),
+                command.until(), now);
+        RecurringTask added = candidate.recurringTasks().stream()
+                .filter(task -> task.id() == original.nextRecurringTaskId()).findFirst().orElseThrow();
+        String confirmation = renderer.recurringTaskAdded(added);
+        saveAndCommit(candidate, state);
+        return confirmation;
+    }
+
+    /** Stops only future generation; saved task occurrences and all ID sequences are retained. */
+    private String deleteRecurringTask(int id, AppState state) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = recurringTasks.delete(original, id);
+        RecurringTask removed = original.recurringTasks().stream().filter(task -> task.id() == id)
+                .findFirst().orElseThrow();
+        String confirmation = renderer.recurringTaskDeleted(removed);
+        saveAndCommit(candidate, state);
+        return confirmation;
+    }
+
+    /**
+     * Prepares a whole-minute progress candidate without changing the live snapshot.
+     *
+     * @param command task ID and reported completed minutes
+     * @param state live snapshot and temporary plan
+     * @return formatted progress confirmation
+     * @throws StorageException if saving a changed candidate fails
+     */
+    private String recordTaskWork(Command.RecordTaskWork command, AppState state) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.recordWork(original, command.id(), command.doneMinutes());
+        return publishTaskProgress(command.id(), original, candidate, state);
+    }
+
+    /**
+     * Prepares the service's rounded session credit without duplicating its arithmetic in the CLI.
+     *
+     * @param command task ID, session minutes and percentage of work completed
+     * @param state live snapshot and temporary plan
+     * @return formatted progress confirmation
+     * @throws StorageException if saving a changed candidate fails
+     */
+    private String recordTaskSession(Command.RecordTaskSession command, AppState state) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.recordSessionProgress(original, command.id(), command.sessionMinutes(),
+                command.percent());
+        return publishTaskProgress(command.id(), original, candidate, state);
+    }
+
+    /**
+     * Prepares the actual credited amount before saving and publishing any change.
+     *
+     * @param taskId validated task ID
+     * @param original source snapshot
+     * @param candidate validated candidate or original instance for zero credited work
+     * @param state live state to publish after a successful save
+     * @return formatted progress confirmation
+     * @throws StorageException if saving a changed candidate fails
+     */
+    private String publishTaskProgress(int taskId, Snapshot original, Snapshot candidate, AppState state)
+            throws StorageException {
+        Task previous = original.tasks().stream().filter(task -> task.id() == taskId).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated progress is missing its original task."));
+        Task revised = candidate.tasks().stream().filter(task -> task.id() == taskId).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated progress is missing its revised task."));
+        int creditedMinutes = previous.remainingMinutes() - revised.remainingMinutes();
+        LOGGER.log(Level.FINE, "Preparing task progress confirmation");
+        String confirmation = Objects.requireNonNull(renderer.taskProgressUpdated(revised, creditedMinutes),
+                "task progress confirmation");
+        if (candidate != original) {
+            saveAndCommit(candidate, state);
+        }
+        return confirmation;
+    }
+
+    /**
+     * Validates a revised estimate and prepares its response before any save or publication.
+     *
+     * @param command task ID and replacement remaining minutes
+     * @param state live snapshot and temporary plan
+     * @return confirmation for the validated estimate, including an unchanged estimate
+     * @throws StorageException if the candidate cannot be saved
+     * @throws ValidationException if the task or estimate is invalid
+     */
+    private String reviseTaskRemaining(Command.ReviseTaskRemaining command, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Validating task remaining-work revision");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = tasks.reviseRemaining(original, command.id(), command.remainingMinutes());
+        Task revised = candidate.tasks().stream().filter(task -> task.id() == command.id())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated revision is missing its target."));
+        String confirmation = Objects.requireNonNull(renderer.taskRemainingUpdated(revised),
+                "task remaining confirmation");
+        if (candidate != original) {
+            saveAndCommit(candidate, state);
+        }
+        return confirmation;
+    }
+
+    /**
+     * Saves a validated weekly series before clearing the temporary plan or announcing success.
+     */
+    private String addCommitment(Command.AddCommitment command, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Validating commitment addition");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = commitments.add(original, command.name(), command.day(), command.start(),
+                command.minutes(), command.startDate(), command.endDate());
+        Commitment added = candidate.commitments().stream()
+                .filter(commitment -> commitment.id() == original.nextCommitmentId()).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Commitment candidate is missing the allocated ID."));
+        saveAndCommit(candidate, state);
+        return renderer.commitmentAdded(added);
+    }
+
+    /**
+     * Creates and publishes one complete continuous unavailable batch.
+     */
+    private String addContinuousBlock(Command.AddContinuousBlock command, AppState state) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = commitments.addContinuousBlock(original, command.name(), command.start(), command.end());
+        return publishUnavailableBatch(original, candidate, state);
+    }
+
+    /**
+     * Creates and publishes one complete daily unavailable batch.
+     */
+    private String addDailyBlocks(Command.AddDailyBlocks command, AppState state) throws StorageException {
+        Snapshot original = state.snapshot();
+        Snapshot candidate = commitments.addDailyBlocks(original, command.name(), command.firstDate(),
+                command.lastDate(), command.start(), command.end());
+        return publishUnavailableBatch(original, candidate, state);
+    }
+
+    /**
+     * Formats only the appended unavailable periods, then saves and publishes the whole candidate once.
+     *
+     * @param original source snapshot retained on rendering or save failure
+     * @param candidate validated candidate containing an appended nonempty batch
+     * @param state live state published only after the candidate is durable
+     * @return confirmation for the newly appended periods
+     * @throws StorageException if the complete candidate cannot be saved
+     */
+    private String publishUnavailableBatch(Snapshot original, Snapshot candidate, AppState state)
+            throws StorageException {
+        if (candidate.commitments().size() <= original.commitments().size()) {
+            throw new IllegalStateException("Unavailable candidate must append at least one commitment.");
+        }
+        List<Commitment> added = List.copyOf(candidate.commitments()
+                .subList(original.commitments().size(), candidate.commitments().size()));
+        String confirmation = Objects.requireNonNull(renderer.unavailablePeriodsAdded(added),
+                "unavailable periods confirmation");
+        saveAndCommit(candidate, state);
+        return confirmation;
+    }
+
+    /**
+     * Saves the complete edit before publishing it, invalidating the plan or reporting success.
+     */
+    private String editCommitment(Command.EditCommitment command, AppState state) throws StorageException {
+        Snapshot candidate = commitments.edit(state.snapshot(), command.id(), command.name(), command.day(),
+                command.start(), command.minutes(), command.startDate(), command.endDate());
+        Commitment edited = candidate.commitments().stream()
+                .filter(commitment -> commitment.id() == command.id()).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated commitment edit is missing its target."));
+        saveAndCommit(candidate, state);
+        return renderer.commitmentEdited(edited);
+    }
+
+    /** Saves a skipped occurrence before clearing the temporary plan and confirming success. */
+    private String skipCommitment(Command.SkipCommitment command, AppState state) throws StorageException {
+        Snapshot candidate = commitments.skip(state.snapshot(), command.id(), command.date());
+        Commitment updated = candidate.commitments().stream()
+                .filter(commitment -> commitment.id() == command.id()).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated commitment skip is missing its target."));
+        saveAndCommit(candidate, state);
+        return renderer.commitmentSkipped(updated, command.date());
+    }
+
+    /**
+     * Retains the validated original series so deletion output includes its stable ID and name.
+     */
+    private String deleteCommitment(int id, AppState state) throws StorageException {
+        LOGGER.log(Level.FINE, "Validating commitment deletion");
+        Snapshot original = state.snapshot();
+        Snapshot candidate = commitments.delete(original, id);
+        Commitment removed = original.commitments().stream()
+                .filter(commitment -> commitment.id() == id).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Validated commitment deletion has no original record."));
+        saveAndCommit(candidate, state);
+        return renderer.commitmentDeleted(removed);
+    }
+
+    /**
+     * Publishes only successfully saved candidates; storage failures propagate to the application.
+     *
+     * @param candidate validated data to persist
+     * @param state live state to publish into after saving
+     * @throws StorageException if saving fails, leaving the live state and plan unchanged
+     */
+    private void saveAndCommit(Snapshot candidate, AppState state) throws StorageException {
+        Objects.requireNonNull(candidate, "candidate");
+        Snapshot original = state.snapshot();
+        Optional<Plan> originalPlan = state.currentPlan();
+        LOGGER.log(Level.FINE, "Saving validated candidate");
+        try {
+            storage.save(candidate);
+        } catch (StorageException exception) {
+            LOGGER.log(Level.FINE, "Candidate save failed; live state was not published", exception);
+            throw exception;
+        }
+        assert state.snapshot() == original && state.currentPlan().equals(originalPlan)
+                : "Saving must not publish state or invalidate the plan";
+        LOGGER.log(Level.FINE, "Candidate saved; publishing live state");
+        state.commit(candidate);
+        assert state.snapshot() == candidate && state.currentPlan().isEmpty()
+                : "A saved mutation must publish its snapshot and clear the plan";
+        LOGGER.log(Level.FINE, "Saved candidate committed");
+    }
+
+    /**
+     * Saves and replaces the frozen plan without changing stored task estimates.
+     * A failed save leaves the current plan and saved file untouched.
+     */
+    private String generatePlan(AppState state, LocalDateTime now) throws StorageException {
+        LOGGER.log(Level.FINE, "Generating frozen plan");
+        Snapshot candidate = recurringTasks.materialize(state.snapshot(), now);
+        Plan plan = Objects.requireNonNull(planner.generate(candidate, now), "generated plan");
+        if (!plan.source().equals(candidate)) {
+            throw new IllegalArgumentException("Generated plan must use the validated source snapshot.");
+        }
+        String output = renderer.plan(plan);
+        storage.savePlan(plan);
+        if (candidate != state.snapshot()) {
+            state.commit(candidate);
+        }
+        state.replacePlan(plan);
+        LOGGER.log(Level.FINE, "Saved plan published");
+        return output;
+    }
+
+    /**
+     * Gives absent plans precedence over date-range validation and projects existing frozen plans.
+     */
+    private String showSchedule(AppState state, LocalDate date) {
+        LOGGER.log(Level.FINE, "Checking current plan for schedule request");
+        if (state.currentPlan().isEmpty()) {
+            LOGGER.log(Level.FINE, "No current plan available");
+            return renderer.noPlan();
+        }
+        LOGGER.log(Level.FINE, "Projecting frozen plan for requested date");
+        return renderer.schedule(schedules.forDate(state.currentPlan().orElseThrow(), date));
+    }
+}
+// @@author

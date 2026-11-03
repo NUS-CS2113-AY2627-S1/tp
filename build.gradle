@@ -6,6 +6,9 @@ plugins {
 }
 
 java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
@@ -25,6 +28,7 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    enableAssertions = true
 
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -38,7 +42,8 @@ test {
 }
 
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'scheduleflow.Main'
+    applicationDefaultJvmArgs = ['-ea']
 }
 
 jar {
@@ -49,13 +54,38 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'scheduleflow.jar'
+    manifest {
+        attributes 'Main-Class': 'scheduleflow.Main'
+    }
+}
+
+// The lean JAR is disabled, so normal distributions must also use the executable Shadow JAR.
+startScripts {
+    classpath = files(tasks.named('shadowJar'))
+}
+
+distributions {
+    main {
+        contents {
+            from(tasks.named('shadowJar')) {
+                into 'lib'
+            }
+        }
+    }
 }
 
 checkstyle {
     toolVersion = '14.1.0'
+    maxWarnings = 0
 }
 
 run {
     standardInput = System.in
+    enableAssertions = true
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
 }

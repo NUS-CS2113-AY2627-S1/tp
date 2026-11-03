@@ -1,0 +1,69 @@
+@startuml
+!include course-style.puml
+left to right direction
+hide empty members
+
+interface Storage <<interface>> PERSISTENCE {
+    + load() : Snapshot
+    + loadPlan(source: Snapshot) : Optional<Plan>
+    + save(state: Snapshot) : void
+    + savePlan(plan: Plan) : void
+}
+class FileStorage PERSISTENCE {
+    - file: Path
+    - writeAtomically(text: String) : void
+    - removeTemporaryFile(temporaryFile: Path, failure: StorageException) : void
+}
+class "~FileStorage.FileOperations" as FileOperations PERSISTENCE {
+    ~ createTemporaryFile(parent: Path) : Path
+    ~ write(temporaryFile: Path, text: String) : void
+    ~ replace(temporaryFile: Path, target: Path) : void
+    ~ deleteIfExists(temporaryFile: Path) : void
+}
+class Files <<external>> PERSISTENCE
+class StateCodec PERSISTENCE {
+    + encode(state: Snapshot) : String
+    + decode(text: String) : Snapshot
+    ~ encodeForPlan(state: Snapshot) : String
+}
+class "~PlanCodec" as PlanCodec PERSISTENCE {
+    ~ PlanCodec(snapshots: StateCodec)
+    ~ encode(plan: Plan) : String
+    ~ decode(text: String) : Plan
+}
+class StorageException PARSING
+class Snapshot <<record>> VALUES {
+    - tasks: List<Task>
+    - commitments: List<Commitment>
+    - recurringTasks: List<RecurringTask>
+}
+class Plan <<record>> VALUES
+interface Planner <<interface>> DOMAIN {
+    {static} + validate(plan: Plan) : void
+}
+
+Storage <|.. FileStorage
+FileStorage --> "codec\n1" StateCodec
+FileStorage --> "operations\n1" FileOperations
+FileOperations ..> Files : real save operations
+FileStorage ..> PlanCodec : creates
+PlanCodec --> "snapshots\n1" StateCodec
+StateCodec ..> PlanCodec : decodes plan sources
+StateCodec ..> Snapshot : creates
+PlanCodec ..> Plan : creates / reads
+PlanCodec ..> Planner : validates before encode / after decode
+FileStorage ..> StorageException : throws
+Plan --> "source\n1" Snapshot
+
+note as SnapshotNote
+  Hours, policy and three ID counters are omitted.
+  Lists are copied; counters survive deletion.
+end note
+SnapshotNote -[dashed]- Snapshot
+note as OperationsNote
+  Nested package-private collaborator.
+  Tests inject faults without changing global providers.
+  Reads and directory creation use Files directly.
+end note
+OperationsNote -[dashed]- FileOperations
+@enduml
