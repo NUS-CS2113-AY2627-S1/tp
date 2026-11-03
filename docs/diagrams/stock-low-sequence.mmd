@@ -1,0 +1,39 @@
+sequenceDiagram
+    participant D as :Duke
+    participant P as :Parser
+    participant C as :LowStockCommand
+    participant PL as :ProductList
+    participant SL as :StockList
+    participant U as :Ui
+
+    D->>P: parse(command)
+    activate P
+    P->>C: LowStockCommand(threshold)
+    activate C
+    C-->>P: parsedCommand
+    deactivate C
+    P-->>D: parsedCommand
+    deactivate P
+
+    D->>C: execute(...)
+    activate C
+
+    C->>PL: getSortedByName()
+    activate PL
+    PL-->>C: sortedProducts
+    deactivate PL
+
+    loop for each product with stock <= threshold
+        C->>SL: findByProduct(product.getName())
+        activate SL
+        SL-->>C: existing
+        deactivate SL
+    end
+
+    C->>U: showLowStock(lowStocks, threshold, isCatalogueEmpty)
+    activate U
+    U-->>C: 
+    deactivate U
+
+    C-->>D: 
+    deactivate C

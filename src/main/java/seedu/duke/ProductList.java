@@ -1,0 +1,100 @@
+package seedu.duke;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
+/**
+ * Stores the product catalogue in memory.
+ *
+ * Products are held in insertion order and sorted only when they are listed. With the small
+ * catalogues the system deals with, sorting on demand is cheap and keeps this class easy to follow;
+ * a sorted collection such as a {@code TreeMap} would only pay off at a much larger scale.
+ */
+public class ProductList {
+    private final ArrayList<Product> products = new ArrayList<>();
+
+    /**
+     * Adds a product to the catalogue.
+     *
+     * Product names identify products, so duplicates are rejected here rather than in the
+     * command, keeping the rule in one place.
+     *
+     * @param product the product to add
+     * @throws SystemException if a product with the same name already exists, ignoring case
+     */
+    public void add(Product product) throws SystemException {
+        assert product != null : "Cannot add a null product to the catalogue";
+
+        if (findByName(product.getName()) != null) {
+            throw new SystemException("A product named \"" + product.getName() + "\" is already in the catalogue.");
+        }
+        int sizeBefore = products.size();
+        products.add(product);
+
+        // A successful add must leave exactly one new entry that later lookups can find.
+        assert products.size() == sizeBefore + 1 : "Catalogue should grow by exactly one product";
+        assert findByName(product.getName()) == product : "Newly added product should be found by its name";
+    }
+
+    /**
+     * Returns the product with the given name ignoring case, or null if the catalogue has none.
+     *
+     * @param name the product name to look for
+     */
+    public Product findByName(String name) {
+        for (Product product : products) {
+            if (product.getName().equalsIgnoreCase(name)) {
+                return product;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Removes the given product from the catalogue.
+     *
+     * The caller finds the product with {@link #findByName(String)} first, so it is expected to be
+     * in the catalogue.
+     *
+     * @param product the product to remove
+     */
+    public void remove(Product product) {
+        assert product != null : "Cannot remove a null product from the catalogue";
+
+        boolean isRemoved = products.remove(product);
+        assert isRemoved : "Product to remove should be in the catalogue";
+    }
+
+    public int size() {
+        return products.size();
+    }
+
+    /**
+     * Returns the products whose name contains the keyword, ignoring case, in alphabetical order.
+     *
+     * Matching on any part of the name means "milk" finds both "Oat Milk" and "Milk Powder", so
+     * the user does not need to remember a product's exact name.
+     *
+     * @param keyword the text to look for, already validated as non-empty by the parser
+     */
+    public List<Product> findByKeyword(String keyword) {
+        assert keyword != null && !keyword.isBlank() : "Keyword must be validated as non-empty before searching";
+
+        String lowerKeyword = keyword.toLowerCase();
+        return getSortedByName().stream()
+                .filter(product -> product.getName().toLowerCase().contains(lowerKeyword))
+                .toList();
+    }
+
+    /**
+     * Returns the products sorted alphabetically by name, ignoring case.
+     *
+     * The returned list is a copy, so sorting it does not disturb the stored order.
+     */
+    public List<Product> getSortedByName() {
+        List<Product> sorted = new ArrayList<>(products);
+        sorted.sort(Comparator.comparing(Product::getName, String.CASE_INSENSITIVE_ORDER));
+        return sorted;
+    }
+}
