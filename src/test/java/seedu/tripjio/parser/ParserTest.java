@@ -1,0 +1,65 @@
+package seedu.tripjio.parser;
+
+import seedu.tripjio.command.BudgetStatusCommand;
+import seedu.tripjio.command.ExitCommand;
+import seedu.tripjio.command.ForecastCommand;
+import seedu.tripjio.command.HelpCommand;
+import seedu.tripjio.command.SetBudgetCommand;
+import seedu.tripjio.exception.TripJioException;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class ParserTest {
+
+    @Test
+    void parse_mixedCaseSplitList_returnsListCommand() throws TripJioException {
+        assertInstanceOf(seedu.tripjio.command.SplitListCommand.class, Parser.parse("SPLIT LIST"));
+        assertInstanceOf(seedu.tripjio.command.SplitListCommand.class, Parser.parse("split LiSt m/10-2026"));
+        assertThrows(TripJioException.class, () -> Parser.parse("split LIST invalid"));
+    }
+
+    @Test
+    void parse_help_returnsHelpCommand() throws TripJioException {
+        assertInstanceOf(HelpCommand.class, Parser.parse("help"));
+    }
+
+    @Test
+    void parse_upperCaseExit_returnsExitCommand() throws TripJioException {
+        assertInstanceOf(ExitCommand.class, Parser.parse("EXIT"));
+    }
+
+    @Test
+    void parse_extraSpacesAndWords_ignored() throws TripJioException {
+        assertInstanceOf(HelpCommand.class, Parser.parse("   help   me please "));
+    }
+
+    @Test
+    void parse_emptyInput_throws() {
+        for (String input : new String[] {"", "   "}) {
+            TripJioException e = assertThrows(TripJioException.class, () -> Parser.parse(input));
+            assertEquals("Please enter a command. Type help to see all commands.", e.getMessage());
+        }
+    }
+
+    @Test
+    void parse_unknownCommand_throws() {
+        TripJioException e = assertThrows(TripJioException.class, () -> Parser.parse("abc"));
+        assertEquals("Unknown command: abc. Type help to see all commands.", e.getMessage());
+    }
+
+    @Test
+    void parse_budgetCommand_returnsBudgetCommand() throws TripJioException {
+        assertInstanceOf(SetBudgetCommand.class, Parser.parse("budget set a/1000"));
+        assertInstanceOf(BudgetStatusCommand.class, Parser.parse("budget status"));
+    }
+
+    @Test
+    void parse_forecastCommand_returnsForecastCommand() throws TripJioException {
+        assertInstanceOf(ForecastCommand.class, Parser.parse("forecast"));
+        assertInstanceOf(ForecastCommand.class, Parser.parse("forecast m/10-2026"));
+    }
+}

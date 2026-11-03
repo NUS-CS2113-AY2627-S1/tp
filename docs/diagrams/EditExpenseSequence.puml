@@ -1,0 +1,58 @@
+@startuml
+skinparam shadowing false
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontColor #243247
+skinparam ArrowColor #53657A
+skinparam sequenceLifeLineBackgroundColor #E2EDFC
+skinparam NoteBackgroundColor #FFF8DE
+skinparam NoteBorderColor #BDAA65
+skinparam sequenceParticipantBorderColor #60758A
+skinparam sequenceLifeLineBorderColor #A5B1BE
+skinparam sequenceGroupBorderColor #8D9BAD
+skinparam sequenceGroupBackgroundColor #F4F6F9
+title Editing a personal expense: "edit 3 a/120 c/food"
+participant "app: TripJio" as App #E8EDF3
+participant "c: EditCommand" as Cmd #E2EDFC
+participant "expenses:\nExpenseList" as List #E3F3EF
+participant "e: Expense" as Exp #E3F3EF
+participant "ui: Ui" as Ui #EFE6F8
+
+activate App
+App -> Cmd : execute(state, ui)
+activate Cmd
+Cmd -> List : get(3)
+activate List
+List --> Cmd : e
+deactivate List
+opt a/ was given
+Cmd -> Exp : setAmount(120)
+activate Exp
+note right
+  subclass rule;
+  may throw
+end note
+Exp --> Cmd
+deactivate Exp
+end
+note over Cmd, Exp : The amount is changed first: if it is rejected,\nno other field has been changed yet.
+opt d/, c/ or dt/ was given
+Cmd -> Exp : set other fields(...)
+activate Exp
+Exp --> Cmd
+deactivate Exp
+end
+Cmd -> Exp : getMonth()
+activate Exp
+Exp --> Cmd : month
+deactivate Exp
+note right of Cmd : Store month in c.affectedMonth.\nThis is the date after any edit.
+Cmd -> Ui : showMessage(...)
+activate Ui
+Ui --> Cmd
+deactivate Ui
+Cmd --> App
+deactivate Cmd
+ref over App, Ui : MonthlyBudgetWarning
+note over App, Cmd : The referenced interaction calls c.getAffectedMonth(),\nwhich returns the stored month; saving follows.
+deactivate App
+@enduml

@@ -1,0 +1,159 @@
+package seedu.tripjio;
+
+import seedu.tripjio.command.Command;
+import seedu.tripjio.exception.TripJioException;
+import seedu.tripjio.model.AppState;
+import seedu.tripjio.model.budget.BudgetChecker;
+import seedu.tripjio.model.trip.Trip;
+import seedu.tripjio.parser.Parser;
+import seedu.tripjio.storage.Storage;
+import seedu.tripjio.ui.Ui;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.LogManager;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
+
+/**
+ * Main entry point of TripJio, a budget tracker and travel app for students.
+ */
+public class TripJio {
+    private static final String DATA_FILE = "data/tripjio.txt";
+    private static final String LOG_FILE = "data/tripjio.log";
+    private static final Logger logger = Logger.getLogger(TripJio.class.getName());
+
+    private final Ui ui;
+    private final Storage storage;
+    private final AppState state;
+
+    /**
+     * Creates the application that reads from the keyboard and loads data from the given file.
+     *
+     * @param filePath Path of the data file.
+     */
+    public TripJio(String filePath) {
+        this(filePath, new Ui());
+    }
+
+    /**
+     * Creates the application with the given UI, so tests can supply fake input and capture the output.
+     *
+     * @param filePath Path of the data file.
+     * @param ui UI used for all input and output.
+     */
+    public TripJio(String filePath, Ui ui) {
+        this.ui = ui;
+        this.storage = new Storage(filePath);
+        this.state = storage.load(ui);
+
+        logger.info("Loaded " + state.getExpenses().size() + " expense(s) from " + filePath);
+    }
+
+    /**
+     * Shows the welcome message, then reads and runs commands until the user exits.
+     * After each command, the budget of the affected month is checked and the data is saved if it changed.
+     * A command that fails shows an error and does neither of these.
+     */
+    public void run() {
+        ui.showWelcome();
+
+        boolean isExit = false;
+
+        while (!isExit) {
+            String input = ui.readCommand();
+            boolean exitRequested = false;
+            try {
+                Command command = Parser.parse(input);
+                assert command != null : "Parser must return a command or throw";
+                exitRequested = command.isExit();
+
+                logger.fine(() -> "Executing " + command.getClass().getSimpleName());
+
+                command.execute(state, ui);
+                showBudgetWarning(command.getAffectedMonth());
+                showTripBudgetWarning(command.getAffectedDate());
+
+                if (command.isMutating()) {
+                    storage.save(state);
+                }
+                isExit = exitRequested;
+                if (isExit) {
+                    ui.showGoodbye();
+                }
+            } catch (TripJioException e) {
+                logger.info("Command failed: " + e.getMessage());
+                ui.showError(e.getMessage());
+                if (exitRequested) {
+                    if (ui.hasInputEnded()) {
+                        ui.showError("Input ended. Exiting without saving; unsaved changes will be lost.");
+                        isExit = true;
+                    } else {
+                        ui.showMessage("Not exiting: data could not be saved. Fix the data file location "
+                                + "and permissions, then retry exit.");
+                    }
+                }
+            }
+            ui.showLine();
+        }
+    }
+
+    private void showBudgetWarning(YearMonth month) {
+        if (month == null) {
+            return;
+        }
+        double spent = state.getExpenses().getTotalSpentInMonth(month);
+        String warning = BudgetChecker.check(state.getBudget(), spent, month);
+        if (warning != null) {
+            ui.showMessage(warning);
+        }
+    }
+
+    private void showTripBudgetWarning(LocalDate date) {
+        if (date == null || !state.getTrips().hasCurrent()) {
+            return;
+        }
+        Trip trip = state.getTrip();
+        if (!trip.hasBudget() || !trip.contains(date)) {
+            return;
+        }
+        double spent = state.getExpenses().getTotalSpentBetween(trip.getStart(), trip.getEnd());
+        String warning = BudgetChecker.checkTrip(trip, state.getTrips().getCurrentName(), spent);
+        if (warning != null) {
+            ui.showMessage(warning);
+        }
+    }
+
+    /**
+     * Starts the TripJio application.
+     *
+     * @param args command-line arguments (not used).
+     */
+    public static void main(String[] args) {
+        setUpLogging();
+        new TripJio(DATA_FILE).run();
+    }
+
+    private static void setUpLogging() {
+        LogManager.getLogManager().reset();
+        Logger root = Logger.getLogger("");
+
+        try {
+            Files.createDirectories(Path.of(LOG_FILE).getParent());
+
+            FileHandler fileHandler = new FileHandler(LOG_FILE, true);
+            fileHandler.setFormatter(new SimpleFormatter());
+
+            root.addHandler(fileHandler);
+            root.setLevel(Level.INFO);
+            Logger.getLogger("seedu.tripjio").setLevel(Level.FINE);
+        } catch (IOException | SecurityException e) {
+            root.setLevel(Level.OFF);
+        }
+    }
+}
