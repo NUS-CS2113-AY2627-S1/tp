@@ -1,0 +1,48 @@
+@startuml
+!include ../shared/UmlStyle.iuml
+scale max 760 width
+title Creating an event
+caption Successful createEvent e/TAG
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam ParticipantBackgroundColor #F1F6FC
+skinparam ParticipantBorderColor #40566B
+skinparam ArrowColor #40566B
+hide footbox
+
+participant "parser:CommandParser" as Parser
+participant "command:CreateEventCommand" as Command
+participant "EventArgumentValidator" as Validator
+participant "event:Event" as Event
+participant "club:Club" as Club
+participant "ui:UserInterface" as UI
+
+[-> Parser : parse("createEvent e/TAG")
+activate Parser
+Parser -> Parser : parseArgs(...)
+Parser -> Command : validateArgs(args)
+activate Command
+Command -> Validator : validate(args)
+activate Validator
+Validator --> Command
+deactivate Validator
+Command --> Parser
+deactivate Command
+Parser -> Command : execute(args)
+activate Command
+create Event
+Command -> Event : new Event(...)
+activate Event
+Event --> Command : event
+deactivate Event
+Command -> Club : addEvent(event)
+activate Club
+Club -> Club : findEventByTag("TAG")
+Club --> Command : true
+deactivate Club
+Command -> UI : print("Created event: TAG")
+Command --> Parser : false
+deactivate Command
+[<-- Parser : false
+deactivate Parser
+@enduml

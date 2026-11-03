@@ -1,0 +1,54 @@
+@startuml
+!include ../shared/UmlStyle.iuml
+'@@author 77chenchen
+title Command processing classes
+caption Command registration and member-assignment queries
+top to bottom direction
+skinparam shadowing false
+skinparam ArrowColor #40566B
+skinparam classBackgroundColor #F1F6FC
+skinparam classBorderColor #40566B
+skinparam classAttributeIconSize 0
+hide circle
+hide empty members
+
+class ClubFlow
+class CommandParser {
+  +register(keyword, command)
+  +registerAlias(keyword, alias)
+  +suggestedCorrection(input): Optional<String>
+  +parse(input): boolean
+}
+abstract class Command {
+  +requiredArgIds(): String[]
+  +validateArgs(args)
+  +execute(args): boolean
+}
+class FindMemberCommand {
+  +flagArgIds(): String[]
+  +execute(args): boolean
+}
+class ViewMemberEventsCommand {
+  +execute(args): boolean
+}
+class XYZCommand
+class Club {
+  +getAssignmentsForMember(member): List<EventAssignment>
+}
+class EventAssignment
+class UserInterface {
+  +confirmCorrection(input): boolean
+}
+
+ClubFlow *-- CommandParser
+' Padding moves the multiplicity away from the arrowhead.
+CommandParser --> "0..*  " Command : dispatches >
+Command <|-- FindMemberCommand
+Command <|-- ViewMemberEventsCommand
+Command <|-- XYZCommand
+FindMemberCommand --> Club : filters members >
+ViewMemberEventsCommand --> Club : queries assignments >
+Club "1" o-- "0..*" EventAssignment : stores >
+Command --> UserInterface : displays via >
+'@@author
+@enduml

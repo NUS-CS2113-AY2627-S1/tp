@@ -1,0 +1,47 @@
+@startuml
+!include ../shared/UmlStyle.iuml
+scale max 760 width
+title Editing an event
+caption Successful editEvent e/TAG b/150
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam ParticipantBackgroundColor #F1F6FC
+skinparam ParticipantBorderColor #40566B
+skinparam ArrowColor #40566B
+hide footbox
+
+participant "command:EditEventCommand" as Command
+participant "club:Club" as Club
+participant "updated:Event" as Updated
+participant "ui:UserInterface" as UI
+
+[-> Command : execute(args)
+activate Command
+Command -> Club : findEventByTag("TAG")
+activate Club
+Club --> Command : original event
+deactivate Club
+note over Command : Keep omitted fields and original completion state
+create Updated
+Command -> Updated : new Event(...)
+activate Updated
+Updated --> Command : updated
+deactivate Updated
+Command -> Club : updateEvent(updated)
+activate Club
+Club -> Club : findEventByTag("TAG")
+Club -> Updated : copyPhotosFrom(original)
+activate Updated
+Updated --> Club
+deactivate Updated
+loop each existing assignment
+    Club -> Club : recreate with updated event if affected
+end
+Club -> Club : replace event at same index
+Club -> Club : update assignments; set unsavedChanges
+Club --> Command : true
+deactivate Club
+Command -> UI : print("Updated event: TAG")
+[<-- Command : false
+deactivate Command
+@enduml

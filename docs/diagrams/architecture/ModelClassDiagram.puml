@@ -1,0 +1,41 @@
+@startuml
+!include ../shared/UmlStyle.iuml
+title Model component
+caption Club ownership and object references
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam ArrowColor #40566B
+skinparam classBackgroundColor #F1F6FC
+skinparam classBorderColor #40566B
+hide circle
+hide empty members
+
+class Club {
+  -members: List<Member>
+  -events: List<Event>
+  -assignments: List<EventAssignment>
+  -unsavedChanges: boolean
+  +updateEvent(event: Event): boolean
+  +replaceWith(loaded: Club): void
+}
+class Event {
+  -tag: String
+  -completed: boolean
+  -photos: HashMap<String, Photo>
+  +withCompleted(completed: boolean): Event
+  +copyPhotosFrom(original: Event): void
+}
+class Member
+class EventAssignment {
+  -role: String
+}
+class Photo
+
+' Padding moves multiplicities away from relationship lines and arrowheads.
+Club "1    " *-- "0..* " Event : contains >
+Club "1  " *-- "0..*        " Member : contains >
+Club "1  " *-- "0..* " EventAssignment : records >
+EventAssignment "0..*    " --> "1 " Event : for event >
+EventAssignment "0..*" --> "1" Member : for member >
+Event "1  " *-- "0..* " Photo : stores >
+@enduml

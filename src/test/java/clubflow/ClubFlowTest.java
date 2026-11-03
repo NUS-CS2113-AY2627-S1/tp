@@ -1,0 +1,546 @@
+package clubflow;
+
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/**
+ * Exercises application startup and command dispatch using complete terminal sessions.
+ */
+class ClubFlowTest {
+    @TempDir
+    Path testDirectory;
+
+    private final InputStream originalInput = System.in;
+    private final PrintStream originalOutput = System.out;
+    private ByteArrayOutputStream output;
+    private PrintStream capturedOutput;
+
+    //@@author Eugene3129
+    @BeforeEach
+    void captureOutput() {
+        output = new ByteArrayOutputStream();
+        capturedOutput = new PrintStream(output, true, StandardCharsets.UTF_8);
+        System.setOut(capturedOutput);
+    }
+
+    @AfterEach
+    void restoreStreams() {
+        System.setIn(originalInput);
+        System.setOut(originalOutput);
+        capturedOutput.close();
+    }
+
+    @Test
+    void run_exit_printsWelcomeAndIgnoresLaterCommands() {
+        String result = runSession("exit\ncreateEvent e/IGNORED\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("Welcome to ClubFlow!")),
+                () -> assertTrue(result.contains("[CF] Goodbye!")),
+                () -> assertFalse(result.contains("Created event:")),
+                () -> assertEquals(1, result.lines().filter(line -> line.contains("Goodbye!")).count())
+        );
+    }
+
+    @Test
+    void run_emptyInput_stopsWithoutAnExitCommand() {
+        String result = assertDoesNotThrow(() -> runSession(""));
+
+        assertTrue(result.contains("Welcome to ClubFlow!"));
+        assertFalse(result.contains("Goodbye!"));
+    }
+
+    @Test
+    void run_endOfInput_processesRemainingCommandsBeforeStopping() {
+        String result = assertDoesNotThrow(() -> runSession("createEvent e/MEETING\nviewEvent all"));
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Created event: MEETING")),
+                () -> assertTrue(result.contains("[CF] [MEETING] Not set")),
+                () -> assertFalse(result.contains("Goodbye!"))
+        );
+    }
+
+    @Test
+    void run_invalidCommands_reportsErrorsAndContinues() {
+        String result = runSession("unknown\n\ncreateEvent e/BAD d/not-a-date\nviewEvent all\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Command syntax error: Command \"unknown\" does not exist.")),
+                () -> assertTrue(result.contains("[CF] Command syntax error: Command must not be blank.")),
+                () -> assertTrue(result.contains("[CF] Command syntax error: Event date must use YYYY-MM-DD format.")),
+                () -> assertTrue(result.contains("[CF] No events found.")),
+                () -> assertFalse(result.contains("Created event:")),
+                () -> assertTrue(result.contains("[CF] Goodbye!"))
+        );
+    }
+
+    //@@author Bryan-chua
+    @Test
+    void run_saveCommand_reportsUnknownCommand() {
+        String result = runSession("save\nexit\n");
+
+        assertTrue(result.contains("[CF] Command syntax error: Command \"save\" does not exist."));
+        assertTrue(result.contains("[CF] Goodbye!"));
+    }
+
+    @Test
+    void run_aliasAndHelpCommands_preserveAutosaveAcrossSessions() {
+        String firstSession = runSession("ce e/MEETING n/Planning\nhelp c/ce\nexit\n");
+
+        assertTrue(firstSession.contains("[CF] Created event: MEETING"));
+        assertTrue(firstSession.contains("Syntax of command \"createEvent\":"));
+        assertFalse(firstSession.contains("Command syntax error"));
+
+        String secondSession = runSession("ve e/MEETING\nexit\n");
+
+        assertTrue(secondSession.contains("[CF] Saved data loaded."));
+        assertTrue(secondSession.contains("[CF] [MEETING] Planning"));
+        assertFalse(secondSession.contains("Command syntax error"));
+    }
+
+    //@@author Eugene3129
+    @Test
+    void run_missingEvents_reportsEachErrorOnceAndContinuesWithStoredData() {
+        String result = runSession("createEvent e/XMAS n/Party\n"
+                + "mark e/MISSING_MARK\nunmark e/MISSING_UNMARK\n"
+                + "editEvent e/MISSING_EDIT n/Changed\ndeleteEvent e/MISSING_DELETE\n"
+                + "viewEvent e/MISSING_VIEW\nviewEvent e/XMAS\nfe e/Party\nexit\n");
+
+        assertEquals(List.of(
+                "[CF] Event not found: MISSING_MARK",
+                "[CF] Event not found: MISSING_UNMARK",
+                "[CF] Event not found: MISSING_EDIT",
+                "[CF] Event not found: MISSING_DELETE",
+                "[CF] Event not found: MISSING_VIEW"
+        ), result.lines().filter(line -> line.contains("[CF] Event not found:"))
+                .map(line -> line.substring(line.indexOf("[CF]"))).toList());
+        assertAll(
+                () -> assertEquals(2, result.lines().filter(line -> line.contains("[CF] [XMAS] Party")).count()),
+                () -> assertTrue(result.contains("[CF]   Status:    Not completed")),
+                () -> assertTrue(result.contains("[CF] Found 1 matching event(s).")),
+                () -> assertTrue(result.contains("[CF] Goodbye!")),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    @Test
+    void run_duplicateEvent_reportsErrorOnceAndContinuesWithoutReplacingEvent() {
+        String result = runSession("createEvent e/XMAS n/Original b/500\nmark e/XMAS\n"
+                + "createEvent e/xmas n/Duplicate b/999\nviewEvent e/XMAS\n"
+                + "createEvent e/AGM n/Meeting\nviewEvent all\nexit\n");
+
+        assertAll(
+                () -> assertEquals(1, result.lines()
+                        .filter(line -> line.contains("[CF] Event already exists: xmas")).count()),
+                () -> assertEquals(2, result.lines().filter(line -> line.contains("[CF] Created event:")).count()),
+                () -> assertEquals(2, result.lines().filter(line -> line.contains("[CF] [XMAS] Original")).count()),
+                () -> assertTrue(result.contains("[CF]   Status:    Completed")),
+                () -> assertTrue(result.contains("[CF]   Budget:    $500.00")),
+                () -> assertTrue(result.contains("[CF] [AGM] Meeting")),
+                () -> assertTrue(result.contains("[CF] Goodbye!")),
+                () -> assertFalse(result.contains("Duplicate")),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    @Test
+    void run_eventCommands_shareDataAcrossTheSession() {
+        String result = runSession("createEvent e/XMAS n/\"Christmas Party\"\n"
+                + "viewEvent e/xmas\ndeleteEvent e/XMAS\nviewEvent all\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Created event: XMAS")),
+                () -> assertTrue(result.contains("[CF] [XMAS] Christmas Party")),
+                () -> assertTrue(result.contains("[CF] Deleted event: XMAS")),
+                () -> assertTrue(result.contains("[CF] No events found.")),
+                () -> assertTrue(result.indexOf("[XMAS] Christmas Party")
+                        < result.indexOf("Deleted event: XMAS"))
+        );
+    }
+
+    @Test
+    void run_findEventCommand_searchesCreatedEventsAndReflectsDeletion() {
+        String result = runSession("createEvent e/XMAS n/\"Christmas Party\"\n"
+                + "findEvent e/party\ndeleteEvent e/XMAS\nfindEvent e/party\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Found 1 matching event(s).")),
+                () -> assertTrue(result.contains("[CF] [XMAS] Christmas Party")),
+                () -> assertTrue(result.contains("[CF] No matching events found.")),
+                () -> assertTrue(result.indexOf("[XMAS] Christmas Party")
+                        < result.indexOf("Deleted event: XMAS")),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    @Test
+    void run_findAliases_searchDifferentTypesAndShowCanonicalHelp() {
+        String result = runSession("createEvent e/XMAS n/Party v/\"Main Hall\"\ncm n/Alice t/alice\n"
+                + "findEvent e/party\nfe v/hall\nfindMember q/Alice\nfm q/Alice\n"
+                + "help c/findEvent\nhelp c/fe\nhelp c/fm\nexit\n");
+
+        assertAll(
+                () -> assertEquals(2, result.lines().filter(line -> line.equals("[CF] [XMAS] Party")).count()),
+                () -> assertEquals(2, result.lines()
+                        .filter(line -> line.contains("[CF] Syntax of command \"findEvent\":")).count()),
+                () -> assertEquals(2, result.lines()
+                        .filter(line -> line.equals("[CF] > findEvent [e/Keyword] [q/Keyword] [n/Name]"
+                                + " [v/Venue] [l/Logistics] [d/Date] [by/Deadline]"
+                                + " [from/StartDate] [to/EndDate]"
+                                + " [b/Budget] [min/Budget] [max/Budget] [s/completed|pending]")).count()),
+                () -> assertEquals(2, result.lines().filter(line -> line.equals("[CF] 1. Alice")).count()),
+                () -> assertTrue(result.contains("[CF] Aliases: [fe]")),
+                () -> assertTrue(result.contains("[CF] Syntax of command \"findMember\":")),
+                () -> assertTrue(result.contains("[CF] Aliases: [fm]")),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    @Test
+    void run_findBudgetAndStatus_reflectsMarkAndUnmarkAndContinuesAfterInvalidFilters() {
+        String result = runSession("createEvent e/PLAN n/Party b/100\ncreateEvent e/HIGH n/Meeting b/200\n"
+                + "fe s/pending max/100\nmark e/PLAN\nfe s/completed b/100\nfe s/pending max/100\n"
+                + "unmark e/PLAN\nfe s/pending min/100 max/100\nfe b/NaN\nfe s/unknown\nfe b/100\nexit\n");
+
+        assertAll(
+                () -> assertEquals(4, result.lines().filter(line -> line.equals("[CF] [PLAN] Party")).count()),
+                () -> assertFalse(result.contains("[CF] [HIGH] Meeting")),
+                () -> assertTrue(result.contains("[CF] No matching events found.")),
+                () -> assertTrue(result.contains("Search budget must be a finite non-negative number after b/.")),
+                () -> assertTrue(result.contains("Search status must be completed or pending after s/.")),
+                () -> assertTrue(result.contains("[CF] Goodbye!"))
+        );
+    }
+
+    @Test
+    void run_editEvent_updatesDetailsSeenByViewAndFind() {
+        String result = runSession("createEvent e/XMAS n/Party v/\"Main Hall\"\n"
+                + "editEvent e/xmas n/Dinner b/600\nviewEvent e/XMAS\n"
+                + "fe e/Dinner\nfe e/Party\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Updated event: XMAS")),
+                () -> assertEquals(2, result.lines().filter(line -> line.contains("[CF] [XMAS] Dinner")).count()),
+                () -> assertTrue(result.contains("[CF]   Venue:     Main Hall")),
+                () -> assertTrue(result.contains("[CF]   Budget:    $600.00")),
+                () -> assertTrue(result.contains("[CF] No matching events found.")),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    @Test
+    void run_invalidClearEvent_printsErrorsAndSyntaxAndContinuesWithoutChangingEvent() {
+        String result = runSession("createEvent e/XMAS n/Party d/2026-12-25 "
+                + "by/2026-12-20 b/500 v/Hall l/Chairs\nmark e/XMAS\n"
+                + "clearEvent\nclearEvent e/\nclearEvent e/\"   \"\n"
+                + "clearEvent e/XMAS e/XMAS\nclearEvent e/XMAS n/New\nclearEvent all\n"
+                + "clearEvent e/UNKNOWN\nviewEvent e/XMAS\ncreateEvent e/NEXT\nexit\n");
+
+        List<String> expectedErrors = List.of(
+                "[CF] Command syntax error: Argument(s) starting with e are required but missing.",
+                "[CF] Command syntax error: An event tag must be provided after e/.",
+                "[CF] Command syntax error: An event tag must be provided after e/.",
+                "[CF] Command syntax error: Multiple arguments start with \"e/\".",
+                "[CF] Command syntax error: Argument(s) starting with n are invalid.",
+                "[CF] Command syntax error: Argument \"all\" has no \"/\".");
+        assertEquals(expectedErrors,
+                result.lines().filter(line -> line.contains("[CF] Command syntax error:"))
+                        // Scripted input is not echoed, so the prompt precedes each error on the same line.
+                        .map(line -> line.substring(line.indexOf("[CF]"))).toList());
+        assertEquals(6, result.lines().filter(line -> line.equals("[CF] Syntax of command \"clearEvent\":"))
+                .count());
+        assertEquals(6, result.lines().filter(line -> line.equals("[CF] > clearEvent e/Tag")).count());
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Event not found: UNKNOWN")),
+                () -> assertTrue(result.contains("[CF] [XMAS] Party")),
+                () -> assertTrue(result.contains("[CF]   Status:    Completed")),
+                () -> assertTrue(result.contains("[CF]   Date:      2026-12-25")),
+                () -> assertTrue(result.contains("[CF]   Deadline:  2026-12-20")),
+                () -> assertTrue(result.contains("[CF]   Budget:    $500.00")),
+                () -> assertTrue(result.contains("[CF]   Venue:     Hall")),
+                () -> assertTrue(result.contains("[CF]   Logistics: Chairs")),
+                () -> assertFalse(result.contains("Cleared event details:")),
+                () -> assertTrue(result.contains("[CF] Created event: NEXT")),
+                () -> assertTrue(result.contains("[CF] Goodbye!"))
+        );
+    }
+
+    @Test
+    void run_clearEvent_clearsDetailsResetsStatusAndAutosavesAcrossSessions() {
+        String firstSession = runSession("createEvent e/XMAS n/Party d/2026-12-25 "
+                + "by/2026-12-20 b/500 v/Hall l/Chairs\nmark e/XMAS\n"
+                + "clearEvent e/xmas\nhelp c/clearEvent\nexit\n");
+
+        assertTrue(firstSession.contains("[CF] Marked event as completed: XMAS"));
+        assertTrue(firstSession.contains("[CF] Cleared event details: XMAS"));
+        assertTrue(firstSession.contains("Syntax of command \"clearEvent\":"));
+        assertFalse(firstSession.contains("Command syntax error"));
+
+        String loadedSession = runSession("viewEvent e/XMAS\nexit\n");
+
+        assertAll(
+                () -> assertTrue(loadedSession.contains("[CF] Saved data loaded.")),
+                () -> assertTrue(loadedSession.contains("[CF] [XMAS] Not set")),
+                () -> assertTrue(loadedSession.contains("[CF]   Status:    Not completed")),
+                () -> assertTrue(loadedSession.contains("[CF]   Date:      Not set")),
+                () -> assertTrue(loadedSession.contains("[CF]   Deadline:  Not set")),
+                () -> assertTrue(loadedSession.contains("[CF]   Budget:    $0.00")),
+                () -> assertTrue(loadedSession.contains("[CF]   Venue:     Not set")),
+                () -> assertTrue(loadedSession.contains("[CF]   Logistics: Not set")),
+                () -> assertFalse(loadedSession.contains("Event not found"))
+        );
+    }
+
+    @Test
+    void run_markAndUnmark_updatesStatusAndPreservesEdits() {
+        String result = runSession("createEvent e/XMAS n/Party\nmark e/xmas\n"
+                + "editEvent e/XMAS n/Dinner\nviewEvent e/XMAS\n"
+                + "unmark e/XMAS\nviewEvent e/XMAS\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Marked event as completed: XMAS")),
+                () -> assertTrue(result.contains("[CF] Marked event as not completed: XMAS")),
+                () -> assertTrue(result.contains("[CF]   Status:    Completed")),
+                () -> assertTrue(result.contains("[CF]   Status:    Not completed")),
+                () -> assertTrue(result.indexOf("Status:    Completed") < result.indexOf("Status:    Not completed")),
+                () -> assertEquals(2, result.lines().filter(line -> line.contains("[CF] [XMAS] Dinner")).count()),
+                () -> assertFalse(result.contains("Command syntax error"))
+        );
+    }
+
+    //@@author
+    @Test
+    void run_completionAutosave_restoresStatusInANewSessionAndAllowsUnmarking() throws IOException {
+        String savedSession = runSession("createEvent e/XMAS n/\"Christmas Party\" "
+                + "d/2026-12-25 by/2026-12-20 b/500 v/\"Main Hall\" l/Chairs\n"
+                + "mark e/XMAS\nexit\n");
+
+        assertTrue(savedSession.contains("[CF] Marked event as completed: XMAS"));
+        Path saveFile = testDirectory.resolve("clubs.cf");
+        assertTrue(Files.isRegularFile(saveFile));
+        assertTrue(new SaveLoadManager().load(saveFile).findEventByTag("XMAS").orElseThrow().isCompleted());
+
+        String loadedSession = runSession("viewEvent e/XMAS\nunmark e/xmas\nviewEvent e/XMAS\nexit\n");
+
+        assertAll(
+                () -> assertTrue(loadedSession.contains("[CF] Saved data loaded.")),
+                () -> assertEquals(List.of("[CF]   Status:    Completed", "[CF]   Status:    Not completed"),
+                        loadedSession.lines().filter(line -> line.contains("Status:")).toList()),
+                () -> assertTrue(loadedSession.contains("[CF] Marked event as not completed: XMAS")),
+                () -> assertEquals(2, loadedSession.lines()
+                        .filter(line -> line.contains("[CF] [XMAS] Christmas Party")).count()),
+                () -> assertTrue(loadedSession.contains("[CF]   Date:      2026-12-25")),
+                () -> assertTrue(loadedSession.contains("[CF]   Deadline:  2026-12-20")),
+                () -> assertTrue(loadedSession.contains("[CF]   Budget:    $500.00")),
+                () -> assertTrue(loadedSession.contains("[CF]   Venue:     Main Hall")),
+                () -> assertTrue(loadedSession.contains("[CF]   Logistics: Chairs")),
+                () -> assertTrue(loadedSession.contains("[CF] Goodbye!"))
+        );
+        assertFalse(new SaveLoadManager().load(saveFile).findEventByTag("XMAS").orElseThrow().isCompleted());
+    }
+
+    //@@author Eugene3129
+    @Test
+    void run_memberCommands_shareAliasesAndConfirmationInput() {
+        String result = runSession("createMember n/Lucy t/lucy\naddMember n/Thomas e/thomas@example.com\n"
+                + "viewMember\ndeleteMember i/1\nno\ndeleteMember i/1\nyes\n"
+                + "viewMember\ndeleteMember i/1 /f\nviewMember\nexit\n");
+
+        assertAll(
+                () -> assertTrue(result.contains("[CF] Created member: Lucy")),
+                () -> assertTrue(result.contains("[CF] Created member: Thomas")),
+                () -> assertTrue(result.contains("[CF] 2. Thomas")),
+                () -> assertTrue(result.contains("[CF] Deletion cancelled.")),
+                () -> assertTrue(result.contains("[CF] Deleted member: Lucy")),
+                () -> assertTrue(result.contains("[CF] 1. Thomas")),
+                () -> assertTrue(result.contains("[CF] Deleted member: Thomas")),
+                () -> assertTrue(result.contains("[CF] No members found.")),
+                () -> assertTrue(result.contains("[CF] Goodbye!")),
+                () -> assertFalse(result.contains("does not exist"))
+        );
+    }
+
+    //@@author
+    @Test
+    void run_separateInstances_restoreAutomaticallySavedData() {
+        runSession("createEvent e/PRIVATE\ncreateMember n/Lucy t/lucy\nexit\n");
+
+        String secondSession = runSession("viewEvent all\nviewMember\nexit\n");
+
+        assertTrue(secondSession.contains("[CF] Saved data loaded."));
+        assertTrue(secondSession.contains("PRIVATE"));
+        assertTrue(secondSession.contains("Lucy"));
+    }
+
+    //@@author 77chenchen
+    @Test
+    void run_memberAssignmentCommands_autosaveAcrossSessions() throws IOException {
+        String firstSession = runSession("ce e/PARTY n/Party\ncm n/Alice t/alice\n"
+                + "am e/PARTY i/1 r/Host\nem i/1 n/Alicia\neditEvent e/PARTY n/Dinner\n"
+                + "help c/findMember\nexit\n");
+
+        assertTrue(firstSession.contains("Assigned member Alice to event PARTY."));
+        assertTrue(firstSession.contains("Syntax of command \"findMember\":"));
+        Club saved = new SaveLoadManager().load(testDirectory.resolve("clubs.cf"));
+        assertEquals("Alicia", saved.getAssignmentsForEvent("PARTY").getFirst().getMember().getName());
+        assertEquals("Dinner", saved.getAssignmentsForEvent("PARTY").getFirst().getEvent().getName());
+
+        String secondSession = runSession("fm q/alicix\nve e/PARTY\num e/PARTY i/1\nexit\n");
+        assertTrue(secondSession.contains("Possible matches"));
+        assertTrue(secondSession.contains("Alicia (Host)"));
+        assertTrue(secondSession.contains("Unassigned member Alicia from event PARTY."));
+        assertTrue(new SaveLoadManager().load(testDirectory.resolve("clubs.cf")).getAssignments().isEmpty());
+    }
+
+    @Test
+    void run_memberAssignmentQueries_useAliasesAndCurrentAssignments() {
+        String result = runSession("ce e/LATE n/Late d/2999-12-31\n"
+                + "ce e/EARLY n/Early d/2000-01-05\n"
+                + "cm n/Alice t/alice\ncm n/Bob t/bob\n"
+                + "am e/LATE i/1 r/Logistics\nam e/EARLY i/1 r/Host\n"
+                + "vme i/1\nfm /u\num e/EARLY i/1\num e/LATE i/1\n"
+                + "fm /u\nhelp c/vme\nexit\n");
+
+        assertTrue(result.contains("Events assigned to Alice (member 1):"));
+        assertTrue(result.contains("Summary: 1 upcoming | 1 overdue | 0 completed | 0 without date"));
+        assertTrue(result.contains("Status: UPCOMING"));
+        assertTrue(result.contains("Status: OVERDUE"));
+        assertTrue(result.indexOf("[EARLY] Early") < result.indexOf("[LATE] Late"));
+        assertEquals(2, result.lines()
+                .filter(line -> line.contains("Matching unassigned members:"))
+                .count());
+        assertTrue(result.contains("Syntax of command \"viewMemberEvents\":"));
+        assertTrue(result.contains("Aliases: [vme]"));
+        assertFalse(result.contains("does not exist"));
+    }
+
+    @Test
+    void run_assignmentQueries_respectClubSwitch() {
+        String result = runSession("createEvent e/DEFAULT n/DefaultEvent d/2999-01-01\n"
+                + "createMember n/DefaultMember t/default\n"
+                + "assignMember e/DEFAULT i/1\n"
+                + "createClub n/chess\n"
+                + "switchClub n/chess\n"
+                + "createMember n/ChessMember t/chess\n"
+                + "findMember /u n/ChessMember\n"
+                + "viewMemberEvents i/1\n"
+                + "switchClub n/default\n"
+                + "findMember /u n/ChessMember\n"
+                + "viewMemberEvents i/1\n"
+                + "exit\n");
+
+        assertTrue(result.contains("Matching unassigned members:"), result);
+        assertTrue(result.contains("1. ChessMember"), result);
+        assertTrue(result.contains("No events assigned to ChessMember."), result);
+        assertTrue(result.contains("No unassigned members matched the specified criteria."), result);
+        assertTrue(result.contains("Events assigned to DefaultMember (member 1): 1"), result);
+        assertTrue(result.contains("Summary: 1 upcoming | 0 overdue | 0 completed | 0 without date"), result);
+    }
+
+    //@@author Bryan-chua
+    @Test
+    void run_correctedCommandConfirmed_executesOnceAndAutosaves() throws IOException {
+        String result = runSession("creatEvent e/XMAS n/\"Christmas Party\"\n\nexit\n");
+
+        assertTrue(result.contains("Corrected prompt: createEvent e/XMAS n/\"Christmas Party\""));
+        assertEquals(1, result.lines().filter(line -> line.contains("Created event: XMAS")).count());
+        assertFalse(result.contains("Command syntax error"));
+        Club saved = new SaveLoadManager().load(testDirectory.resolve("clubs.cf"));
+        assertEquals("Christmas Party", saved.findEventByTag("XMAS").orElseThrow().getName());
+    }
+
+    @Test
+    void run_correctedCommandCancelled_doesNotExecuteAndContinues() throws IOException {
+        String result = runSession("creatEvent e/CANCELLED\nC\ncreateEvent e/KEPT\nexit\n");
+
+        assertTrue(result.contains("Command cancelled."));
+        assertFalse(result.contains("Created event: CANCELLED"));
+        assertTrue(result.contains("Created event: KEPT"));
+        Club saved = new SaveLoadManager().load(testDirectory.resolve("clubs.cf"));
+        assertTrue(saved.findEventByTag("CANCELLED").isEmpty());
+        assertTrue(saved.findEventByTag("KEPT").isPresent());
+    }
+
+    @Test
+    void run_invalidCorrectionResponse_repromptsUntilConfirmed() {
+        String result = runSession("creatEvent e/XMAS\nmaybe\n \n\nexit\n");
+
+        assertEquals(3, result.lines().filter(line -> line.contains("Corrected prompt:")).count());
+        assertEquals(1, result.lines().filter(line -> line.contains("Created event: XMAS")).count());
+        assertFalse(result.contains("does not exist"));
+        assertTrue(result.contains("Goodbye!"));
+    }
+
+    @Test
+    void run_confirmedCorrectionWithMissingArguments_stillValidatesSyntax() {
+        String result = runSession("invte\n\nexit\n");
+
+        assertTrue(result.contains("Corrected prompt: invite"));
+        assertTrue(result.contains("are required but missing."));
+        assertTrue(result.contains("Syntax of command \"invite\":"));
+        assertTrue(result.contains("Goodbye!"));
+    }
+
+    @Test
+    void run_exactCommandsAndAliases_doNotRequestCorrection() {
+        String result = runSession("ce e/XMAS\nviewEvent e/XMAS\nexit\n");
+
+        assertFalse(result.contains("Corrected prompt:"));
+        assertTrue(result.contains("Created event: XMAS"));
+        assertTrue(result.contains("[XMAS] Not set"));
+        assertTrue(result.contains("Goodbye!"));
+    }
+
+    @Test
+    void run_endOfInputDuringCorrection_doesNotExecute() {
+        String result = assertDoesNotThrow(() -> runSession("creatEvent e/UNCONFIRMED\n"));
+
+        assertTrue(result.contains("Corrected prompt:"));
+        assertFalse(result.contains("Created event:"));
+    }
+
+    //@@author Eugene3129
+    @Test
+    void main_exitInput_startsAndStopsWithAssertionsEnabled() {
+        System.setIn(new ByteArrayInputStream("exit\n".getBytes(StandardCharsets.UTF_8)));
+
+        assertDoesNotThrow(() -> ClubFlow.main(new String[0]));
+
+        String result = output.toString(StandardCharsets.UTF_8);
+        assertTrue(result.contains("Welcome to ClubFlow!"));
+        assertTrue(result.contains("[CF] Goodbye!"));
+    }
+
+    //@@author
+    /**
+     * Runs a fresh application with scripted input and captures only that session's output.
+     *
+     * @param input commands and confirmation responses separated by newlines
+     * @return output from the complete session
+     */
+    private String runSession(String input) {
+        output.reset();
+        System.setIn(new ByteArrayInputStream(input.getBytes(StandardCharsets.UTF_8)));
+        new ClubFlow(testDirectory.resolve("clubs.cf")).run();
+        return output.toString(StandardCharsets.UTF_8);
+    }
+}

@@ -1,0 +1,44 @@
+# Chan Ray's Project Portfolio Page
+
+### Project: ClubFlow
+
+ClubFlow is a command-line application written in Java that helps student clubs manage events, members, and related information.
+
+- **New Feature: Command Parsing Framework**
+    - What it does: Provides a centralized framework for registering and executing commands, parsing arguments, and validating user input.
+    - Justification: Allows developers to implement new commands without duplicating parsing and validation logic.
+    - Highlights: Supports required/optional arguments, quoted values, and comprehensive error handling. Designed the `Command`, `CommandParser`, and `UserInterface` classes as the foundation for the application's command system.
+
+- **New Feature: Command Aliases and Help System**
+  - What it does: Allows commands to have multiple aliases and provides a `help` command to display available commands and their syntax, as well as a `userGuide` command to open the online User Guide.
+  - Justification: Improves usability by helping users discover commands, correct invalid inputs, and access documentation easily.
+  - Highlights: Implemented `registerAlias()` and `addSyntax()`, supporting case-insensitive aliases, alias conflict detection, and automatic syntax display on invalid inputs. Integrated the syntax system into existing commands and added direct browser access to the User Guide.
+
+- **New Feature: Event Photo Management**
+  - What it does: Allows users to import, open, list, rename, and delete event photos, including bulk importing from directories.
+  - Justification: Enables clubs to organize and preserve event-related photos directly within ClubFlow.
+  - Highlights: Implemented automatic PNG conversion, event-specific photo storage, photo renaming, and integration with `SaveLoadManager` and autosave. Required handling filesystem operations, image processing, persistence, and data consistency across event modifications.
+
+- **Code contributed**: [tP Code Dashboard](https://nus-cs2113-ay2627-s1.github.io/tp-dashboard/?search=czfray&sort=groupTitle&sortWithin=title&timeframe=commit&mergegroup=&groupSelect=groupByRepos&breakdown=true&checkedFileTypes=docs~functional-code~test-code~other&since=2026-09-18T00%3A00%3A00&filteredFileName=&tabOpen=true&tabType=authorship&tabAuthor=czfray&tabRepo=AY2627S1-CS2113-W10-2%2Ftp%5Bmaster%5D&authorshipIsMergeGroup=false&authorshipFileTypes=docs~functional-code~test-code&authorshipIsBinaryFileTypeChecked=false&authorshipIsIgnoredFilesChecked=false)
+
+- **Documentation**:
+    - **User Guide**:
+        - Documented photo management commands, syntax, and usage examples.
+        - Added documentation for bulk photo importing and automatic photo naming.
+    - **Developer Guide**:
+        - Documented the Model component and photo lifecycle with UML diagrams.
+        - Wrote guides for extending commands, including syntax definitions and aliases.
+        - Defined the target user profile and expanded the glossary.
+        - Documented use cases for event completion and photo importing.
+        - Added manual testing instructions for application operations and photo management.
+
+- **Team-based contributions**:
+    - Led and facilitated group meetings to coordinate discussions, track progress, and guide the team's development direction.
+    - Provided suggestions and constructive feedback through pull request reviews and face-to-face discussions.
+    - Collaborated with teammates to resolve implementation issues and improve the overall quality of the project.
+    - Developed the shared command framework used by teammates to implement their commands.
+    - Provided implementation guides for the command parsing, alias, and syntax systems.
+
+- **Review and mentoring contributions**:
+    - Reviewed PRs such as [PR #46](https://github.com/AY2627S1-CS2113-W10-2/tp/pull/46), [PR #56](https://github.com/AY2627S1-CS2113-W10-2/tp/pull/56) and [PR #57](https://github.com/AY2627S1-CS2113-W10-2/tp/pull/57), providing minor review comments and suggestions for improvement.
+    - Provided reference implementations and guidance to teammates on using the command parsing, alias, and syntax systems.
