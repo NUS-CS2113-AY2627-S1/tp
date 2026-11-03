@@ -1,0 +1,88 @@
+package seedu.tutorledger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.Clock;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+/** Checks that the help command lists every command and ignores extra words. */
+class HelpCommandTest {
+    private StudentCommands commands;
+
+    @BeforeEach
+    void setUp() {
+        Clock clock = TestUtil.clockAt("2026-09-21T10:00:00Z");
+        commands = new StudentCommands(new TutorLedgerData(), clock);
+    }
+
+    @Test
+    void execute_help_returnsHelpText() {
+        assertEquals(HelpCommand.getHelpText(), commands.execute("help"));
+    }
+
+    @Test
+    void execute_helpWithExtraWordsOrDifferentCase_ignoresExtras() {
+        assertEquals(HelpCommand.getHelpText(), commands.execute("help 123"));
+        assertEquals(HelpCommand.getHelpText(), commands.execute("  HELP lesson  "));
+    }
+
+    @Test
+    void getHelpText_listsEverySectionAndCommandFormat() {
+        String help = HelpCommand.getHelpText();
+        for (String section : new String[] {"STUDENTS", "LESSONS", "HOMEWORK", "PAYMENTS", "STORAGE"}) {
+            assertTrue(help.contains(section), "missing section " + section);
+        }
+        for (String format : new String[] {"add n/NAME l/LEVEL p/PHONE_NUMBER", "view STUDENT_ID",
+            "schedule STUDENT_ID d/DATE t/TIME s/SUBJECT [dur/MINUTES] [f/FEE]",
+            "assign STUDENT_ID DESCRIPTION d/DUE_DATE",
+            "mark LESSON_ID STATUS", "pay STUDENT_ID AMOUNT LESSON_ID [LESSON_ID...]",
+            "owed", "save [FILE_PATH]", "reload", "uncancel LESSON_ID", "history", "repeat NUMBER",
+            "edit HOMEWORK_ID [desc/DESCRIPTION] [d/DUE_DATE] [status/STATUS]", "delete HOMEWORK_ID"}) {
+            assertTrue(help.contains(format), "missing format " + format);
+        }
+    }
+
+    @Test
+    void getHelpText_listsFilterAndEveryShortcut() {
+        String help = HelpCommand.getHelpText();
+        assertTrue(help.contains("filter [STUDENT_ID] [from/DATE] [to/DATE] [pay/STATUS]"));
+        assertTrue(help.contains("add n/NAME l/LEVEL p/PHONE_NUMBER [s/SUBJECT]..."));
+        assertTrue(help.contains("SHORTCUTS"));
+        for (CommandAliases.Alias alias : CommandAliases.all()) {
+            assertTrue(help.contains(String.format("  %-5s%s", alias.shortForm(), alias.command())),
+                    "missing shortcut " + alias.shortForm());
+        }
+    }
+
+    @Test
+    void getHelpText_listsAllSchoolLevelRangesAndExamples() {
+        String help = commands.execute("help");
+        assertTrue(help.contains("LEVELS (l/LEVEL; case-insensitive, optional space)"));
+        assertTrue(help.contains("Pri 1 to Pri 6, Sec 1 to Sec 5, or JC 1 to JC 2"));
+        assertTrue(help.contains("l/Pri5, l/Sec 3, l/JC1"));
+    }
+
+    @Test
+    void getHelpText_explainsStudentDeletionConfirmation() {
+        String help = commands.execute("help");
+        assertTrue(help.contains("delete STUDENT_ID [confirm]"));
+        assertTrue(help.contains("STUDENT DELETION"));
+        assertTrue(help.contains(
+                "With lessons, homework, scores or tasks: confirm is required. With none: immediate."));
+        assertTrue(help.contains("Run delete S5 to review the warning, then delete S5 confirm to delete."));
+        assertTrue(help.contains("To keep the records, continue with another command."));
+        assertTrue(help.contains("delete LESSON_ID"));
+    }
+
+    @Test
+    void getHelpText_givesAnExampleForEachCommand() {
+        String help = HelpCommand.getHelpText();
+        assertTrue(help.contains("add n/Amirah Binte Rahman l/Sec 3 p/91234567"));
+        assertTrue(help.contains("schedule S1 d/22-09-2026 t/1600 s/A Math f/60"));
+        assertTrue(help.contains("pay S1 117.50 L37 L38"));
+        assertTrue(help.contains("save backups/term1.txt"));
+    }
+}

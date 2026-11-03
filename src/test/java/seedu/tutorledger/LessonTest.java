@@ -1,0 +1,230 @@
+package seedu.tutorledger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+
+import org.junit.jupiter.api.Test;
+
+class LessonTest {
+    @Test
+    void acceptsValidLessonDetails() {
+        Lesson lesson = new Lesson("L123", "Pure Chemistry", "22-09-2026", "1600",
+                "late", "62.50", "Started vectors");
+
+        assertEquals("L123", lesson.getLessonId());
+        assertEquals("Pure Chemistry", lesson.getSubject());
+        assertEquals(LocalDate.of(2026, 9, 22), lesson.getDate());
+        assertEquals(LocalTime.of(16, 0), lesson.getTime());
+        assertEquals(Lesson.Attendance.LATE, lesson.getAttendance());
+        assertEquals(new BigDecimal("62.50"), lesson.getFee());
+        assertEquals("Started vectors", lesson.getNotes());
+        assertEquals(Lesson.PAYMENT_UNPAID, lesson.getPaymentStatus());
+    }
+
+    @Test
+    void changesPaymentStatusOnACopy() {
+        Lesson lesson = new Lesson("L123", "Pure Chemistry", "22-09-2026", "1600",
+                "late", "62.50", "Started vectors");
+
+        Lesson paid = lesson.withPaymentStatus("PAID");
+
+        assertEquals(Lesson.PAYMENT_PAID, paid.getPaymentStatus());
+        assertEquals(Lesson.PAYMENT_UNPAID, lesson.getPaymentStatus());
+        assertEquals(lesson.getFee(), paid.getFee());
+    }
+
+    @Test
+    void withDetails_someValuesNull_changesOnlyTheSuppliedDetails() {
+        Lesson lesson = new Lesson("L123", "S1", "Pure Chemistry", "22-09-2026", "1600",
+                "not recorded", "62.50", "").withPaymentStatus("paid");
+
+        Lesson moved = lesson.withDetails(null, "25-09-2026", "1800", null, null, null);
+
+        assertEquals(LocalDate.of(2026, 9, 25), moved.getDate());
+        assertEquals(LocalTime.of(18, 0), moved.getTime());
+        assertEquals("L123", moved.getLessonId());
+        assertEquals("S1", moved.getStudentId());
+        assertEquals("Pure Chemistry", moved.getSubject());
+        assertEquals(new BigDecimal("62.50"), moved.getFee());
+        assertEquals(Lesson.PAYMENT_PAID, moved.getPaymentStatus());
+        // The original is immutable, so it still has its old slot.
+        assertEquals(LocalDate.of(2026, 9, 22), lesson.getDate());
+    }
+
+    @Test
+    void withDetails_allValuesGiven_replacesEveryDetail() {
+        Lesson lesson = new Lesson("L123", "S1", "Pure Chemistry", "22-09-2026", "1600",
+                "not recorded", "62.50", "");
+
+        Lesson changed = lesson.withDetails("A Math", "21-09-2026", "0900", "late", "55", "Started vectors");
+
+        assertEquals("A Math", changed.getSubject());
+        assertEquals(LocalDate.of(2026, 9, 21), changed.getDate());
+        assertEquals(LocalTime.of(9, 0), changed.getTime());
+        assertEquals(Lesson.Attendance.LATE, changed.getAttendance());
+        assertEquals(new BigDecimal("55"), changed.getFee());
+        assertEquals("Started vectors", changed.getNotes());
+    }
+
+    @Test
+    void withDetails_invalidValue_throws() {
+        Lesson lesson = new Lesson("L123", "S1", "Pure Chemistry", "22-09-2026", "1600",
+                "not recorded", "62.50", "");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> lesson.withDetails(null, "31-02-2026", null, null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> lesson.withDetails(null, null, "2460", null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> lesson.withDetails(" ", null, null, null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> lesson.withDetails(null, null, null, null, "-5", null));
+    }
+
+    @Test
+    void isRecorded_onlyAfterAttendanceIsSet() {
+        Lesson lesson = new Lesson("L123", "S1", "Pure Chemistry", "22-09-2026", "1600",
+                "not recorded", "62.50", "");
+
+        assertFalse(lesson.isRecorded());
+        assertTrue(lesson.withDetails(null, null, null, "absent", null, null).isRecorded());
+    }
+
+    @Test
+    void rejectsInvalidDate() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new Lesson("L123", "Chemistry", "31-02-2026", "1600",
+                        "present", "62.50", ""));
+    }
+
+    @Test
+    void rejectsInvalidTime() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new Lesson("L123", "Chemistry", "22-09-2026", "2460",
+                        "present", "62.50", ""));
+    }
+
+    @Test
+    void rejectsInvalidFee() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new Lesson("L123", "Chemistry", "22-09-2026", "1600",
+                        "present", "1.234", ""));
+    }
+
+    @Test
+    void rejectsInvalidAttendance() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new Lesson("L123", "Chemistry", "22-09-2026", "1600",
+                        "excused", "62.50", ""));
+    }
+
+    @Test
+    void withCancellation_reason_marksTheCopyCancelledAndKeepsOtherDetails() {
+        Lesson lesson = new Lesson("L1", "S1", "A Math", "22-09-2026", "1600", "not recorded", "60", "")
+                .withPaymentStatus(Lesson.PAYMENT_PAID);
+
+        Lesson cancelled = lesson.withCancellation("  Student sick ");
+
+        assertFalse(lesson.isCancelled());
+        assertEquals("", lesson.getCancellationReason());
+        assertTrue(cancelled.isCancelled());
+        assertEquals("Student sick", cancelled.getCancellationReason());
+        assertEquals(LocalDate.of(2026, 9, 22), cancelled.getDate());
+        assertEquals(Lesson.PAYMENT_PAID, cancelled.getPaymentStatus());
+        // Later copies keep the cancellation.
+        assertTrue(cancelled.withDetails(null, null, null, null, "65", null).isCancelled());
+        assertTrue(cancelled.withPaymentStatus(Lesson.PAYMENT_UNPAID).isCancelled());
+    }
+
+    @Test
+    void withCancellation_blankReason_throws() {
+        Lesson lesson = new Lesson("L1", "S1", "A Math", "22-09-2026", "1600", "not recorded", "60", "");
+
+        assertThrows(IllegalArgumentException.class, () -> lesson.withCancellation("   "));
+        assertThrows(IllegalArgumentException.class, () -> lesson.withCancellation(null));
+    }
+
+    @Test
+    void parseDateAndFormatDate_roundTrip() {
+        assertEquals(LocalDate.of(2027, 1, 5), Lesson.parseDate("05-01-2027"));
+        assertEquals("05-01-2027", Lesson.formatDate(LocalDate.of(2027, 1, 5)));
+        assertThrows(IllegalArgumentException.class, () -> Lesson.parseDate("29-02-2027"));
+    }
+
+    @Test
+    void overlaps_lessonsSharingTime_trueOnlyWhenTheyShareAMinute() {
+        Lesson first = new Lesson("L1", "S1", "Math", "22-09-2026", "1600", "not recorded", "60", "", 90);
+        Lesson inside = new Lesson("L2", "S1", "Math", "22-09-2026", "1700", "not recorded", "60", "");
+        Lesson touching = new Lesson("L3", "S1", "Math", "22-09-2026", "1730", "not recorded", "60", "");
+        Lesson nextDay = new Lesson("L4", "S1", "Math", "23-09-2026", "1600", "not recorded", "60", "");
+
+        assertEquals(LocalDateTime.of(2026, 9, 22, 17, 30), first.getEnd());
+        assertTrue(first.overlaps(inside));
+        assertTrue(inside.overlaps(first));
+        // A lesson that starts exactly when another ends can follow it.
+        assertFalse(first.overlaps(touching));
+        assertFalse(touching.overlaps(first));
+        assertFalse(first.overlaps(nextDay));
+    }
+
+    @Test
+    void overlaps_lessonPastMidnight_overlapsTheNextMorning() {
+        Lesson late = new Lesson("L1", "S1", "Math", "22-09-2026", "2300", "not recorded", "60", "", 120);
+        Lesson early = new Lesson("L2", "S1", "Math", "23-09-2026", "0030", "not recorded", "60", "");
+
+        assertEquals(LocalDateTime.of(2026, 9, 23, 1, 0), late.getEnd());
+        assertTrue(late.overlaps(early));
+    }
+
+    @Test
+    void withoutCancellation_cancelledLesson_keepsEveryOtherDetail() {
+        Lesson cancelled = new Lesson("L1", "S1", "Math", "22-09-2026", "1600", "not recorded", "60", "Vectors")
+                .withAmountPaid(new BigDecimal("20")).withCancellation("Student sick");
+
+        Lesson restored = cancelled.withoutCancellation();
+
+        assertFalse(restored.isCancelled());
+        assertEquals("", restored.getCancellationReason());
+        assertEquals("Vectors", restored.getNotes());
+        assertEquals(0, new BigDecimal("20").compareTo(restored.getAmountPaid()));
+        assertEquals(Lesson.PAYMENT_PARTIAL, restored.getPaymentStatus());
+        // The original is unchanged, since lessons are immutable.
+        assertTrue(cancelled.isCancelled());
+    }
+
+    @Test
+    void hasTakenPlaceBy_countsTodayAndEarlierButNotFutureOrCancelled() {
+        LocalDate today = LocalDate.of(2026, 9, 21);
+        Lesson yesterday = new Lesson("L1", "S1", "Math", "20-09-2026", "1600", "present", "60", "");
+        Lesson laterToday = new Lesson("L2", "S1", "Math", "21-09-2026", "2300", "not recorded", "60", "");
+        Lesson tomorrow = new Lesson("L3", "S1", "Math", "22-09-2026", "0800", "not recorded", "60", "");
+
+        assertTrue(yesterday.hasTakenPlaceBy(today));
+        // Like owed, the rule works by date, so a lesson later today already counts.
+        assertTrue(laterToday.hasTakenPlaceBy(today));
+        assertFalse(tomorrow.hasTakenPlaceBy(today));
+        assertFalse(yesterday.withCancellation("Sick").hasTakenPlaceBy(today));
+    }
+
+    @Test
+    void isOwedOn_onlyPastUncancelledLessonsWithABalance() {
+        LocalDate today = LocalDate.of(2026, 9, 21);
+        Lesson unpaid = new Lesson("L1", "S1", "Math", "20-09-2026", "1600", "present", "60", "");
+
+        assertTrue(unpaid.isOwedOn(today));
+        assertTrue(unpaid.withAmountPaid(new BigDecimal("20")).isOwedOn(today));
+        assertFalse(unpaid.withPaymentStatus(Lesson.PAYMENT_PAID).isOwedOn(today));
+        assertFalse(unpaid.withCancellation("Sick").isOwedOn(today));
+        assertFalse(unpaid.isOwedOn(LocalDate.of(2026, 9, 19)));
+        // A $0 lesson is always paid, so it is never owed.
+        assertFalse(new Lesson("L2", "S1", "Math", "20-09-2026", "1600", "present", "0", "").isOwedOn(today));
+    }
+}
+

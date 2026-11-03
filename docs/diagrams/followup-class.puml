@@ -1,0 +1,70 @@
+@startuml
+!pragma layout smetana
+skinparam backgroundColor white
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+hide empty members
+
+class TutorLedger
+
+abstract class CommandHandler {
+  ~handles(input: String): boolean
+  ~execute(input: String): String
+  #{abstract} run(line: CommandLine): String
+}
+
+class TaskCommands {
+  -clock: Clock
+  {static} ~DISPLAY_ORDER: Comparator<FollowUpTask>
+  #run(line: CommandLine): String
+}
+
+class LessonCommands {
+  -describeFollowUps(student: Student): String
+}
+
+class TutorLedgerData {
+  -nextTaskNumber: int
+  +addTask(studentId: String, description: String, dueDate: LocalDate): FollowUpTask
+  +getTask(id: String): FollowUpTask
+  +replaceTask(task: FollowUpTask)
+  +importTask(task: FollowUpTask)
+  +deleteStudent(id: String): Deletion
+}
+
+class FollowUpTask {
+  -taskId: String
+  -description: String
+  -studentId: String [0..1]
+  -dueDate: LocalDate [0..1]
+  -status: String
+  +isDone(): boolean
+  +isOverdue(today: LocalDate): boolean
+  +asDone(): FollowUpTask
+}
+
+class Student
+
+class Storage {
+  {static} +encode(data: TutorLedgerData): String
+  {static} +decode(lines: List<String>): LoadResult
+}
+
+TutorLedger ..> CommandHandler : dispatches to handlers
+CommandHandler <|-- TaskCommands
+TutorLedger ..> LessonCommands
+TaskCommands --> TutorLedgerData
+LessonCommands --> TutorLedgerData
+LessonCommands ..> TaskCommands : uses DISPLAY_ORDER
+TutorLedgerData "1" *-- "*" FollowUpTask
+TutorLedgerData "1" *-- "*" Student
+FollowUpTask ..> Student : linked by ID
+note bottom of FollowUpTask
+  A task optionally stores one student ID.
+  It does not store a Student object reference.
+end note
+Storage ..> TutorLedgerData
+Storage ..> FollowUpTask : T lines
+@enduml

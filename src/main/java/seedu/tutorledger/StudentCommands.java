@@ -1,0 +1,565 @@
+package seedu.tutorledger;
+
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/** Parses student commands, including the optional default hourly rate (US5). */
+public class StudentCommands extends CommandHandler {
+    /** Records rejected commands when debug logging is enabled. */
+    private static final Logger LOGGER = Logger.getLogger(StudentCommands.class.getName());
+    /** Locates a list prefix, leaving the preceding text as the existing free-text name query. */
+    private static final Pattern LIST_PREFIX = Pattern.compile("(?i)(?<!\\S)[a-z]+/");
+    /** Prefixes whose values are names, which may contain "s/o" or "d/o". */
+    private static final Set<String> NAME_FIELDS = Set.of("n");
+    /** {@code list sort/owed}: the students who owe the most come first. */
+    private static final String SORT_OWED = "owed";
+    /** {@code list sort/last}: the students whose last lesson was longest ago come first. */
+    private static final String SORT_LAST = "last";
+    private final TutorLedgerData data;
+    private final Clock clock;
+
+    public StudentCommands(TutorLedgerData data, Clock clock) {
+        super(Set.of("add", "subject", "view", "list", "edit", "delete", "archive", "restore", "flag", "unflag",
+                "flagged", "help"));
+        assert data != null : "StudentCommands needs shared records";
+        assert clock != null : "StudentCommands needs a clock";
+        this.data = data;
+        this.clock = clock;
+    }
+
+    /**
+     * Returns true for any input, because this handler is the last one tried: it runs the student commands and
+     * answers blank input and unknown command words.
+     */
+    @Override
+    boolean handles(String input) {
+        return true;
+    }
+
+    @Override
+    protected String run(CommandLine line) {
+        String arguments = line.arguments();
+        return switch (line.word()) {
+        case "" -> "Enter a command.";
+        case "add" -> add(arguments);
+        case "subject" -> subject(arguments);
+        case "view" -> view(arguments);
+        case "list" -> list(arguments);
+        case "edit" -> edit(arguments);
+        case "delete" -> delete(arguments);
+        case "archive" -> setArchived(arguments, true);
+        case "restore" -> setArchived(arguments, false);
+        case "flag" -> flag(arguments);
+        case "unflag" -> unflag(arguments);
+        case "flagged" -> listFlagged(arguments);
+        case "help" -> HelpCommand.getHelpText();
+        default -> "Unknown command: " + line.typedWord() + ".";
+        };
+    }
+
+    /**
+     * Handles {@code add n/NAME l/LEVEL p/PHONE_NUMBER [s/SUBJECT]... [r/RATE]}.
+     * Subjects are optional, so a whole student record can be entered in one line (story US38)
+     * instead of following {@code add} with a separate {@code subject} command.
+     */
+    private String add(String arguments) {
+        ArgumentParser.Fields fields = ArgumentParser.parseFields(arguments, List.of("n", "l", "p", "s", "r"),
+                Set.of(), NAME_FIELDS);
+        String name = fields.single("n", true);
+        String level = fields.single("l", true);
+        String phone = fields.single("p", true);
+        List<String> subjects = fields.values("s");
+        // Checked before adding, so a bad subject does not leave a half-entered student behind.
+        if (subjects.stream().anyMatch(String::isBlank)) {
+            throw new IllegalArgumentException("Give a non-blank s/SUBJECT, or leave s/ out.");
+        }
+        Student student = data.addStudent(name, level, phone, subjects, fields.singleOr("r", null));
+        String subjectLine = subjects.isEmpty() ? "" : System.lineSeparator() + "Subjects: " + subjectText(student);
+        String rateLine = fields.has("r") ? System.lineSeparator() + rateText(student) : "";
+        return "Added " + details(student) + subjectLine + rateLine + System.lineSeparator()
+                + studentCountText();
+    }
+
+    /** Explains the difference between stored profiles and the default active-only list when needed. */
+    private String studentCountText() {
+        int total = data.getStudents().size();
+        long archivedCount = data.getStudents().stream().filter(Student::isArchived).count();
+        String breakdown = archivedCount == 0 ? "" : " in total (" + (total - archivedCount)
+                + " active, " + archivedCount + " archived)";
+        return "You now have " + Formats.count(total, "student") + breakdown + ".";
+    }
+
+    private String subject(String arguments) {
+        IdAndFields input = parseIdAndFields(arguments, List.of("s"), Set.of());
+        Student student = data.getStudent(input.id());
+        List<String> additions = input.fields().values("s");
+        if (additions.isEmpty() || additions.stream().anyMatch(String::isBlank)) {
+            throw new IllegalArgumentException("Give at least one non-blank s/SUBJECT.");
+        }
+        List<String> subjects = new ArrayList<>(student.getSubjects());
+        subjects.addAll(additions);
+        Student updated = student.withDetails(student.getName(), student.getLevel(),
+                student.getPhoneNumber(), subjects);
+        int added = updated.getSubjects().size() - student.getSubjects().size();
+        data.replaceStudent(updated);
+        return "Added " + Formats.count(added, "subject") + " to " + student.getStudentId() + " " + student.getName()
+                + ". Subjects: " + subjectText(updated);
+    }
+
+    /**
+     * Handles {@code list [NAME] [status/STATUS] [sort/SORT]}. Lists active profiles by default without
+     * changing shared lookups used by payments and storage.
+     * {@code sort/owed} and {@code sort/last} (story US41) reorder the list so the students who need
+     * attention first come first, and show the value each row was sorted by.
+     */
+    private String list(String arguments) {
+        ListOptions options = ListOptions.parse(arguments);
+        List<Student> matches = new ArrayList<>(data.findStudents(options.query()).stream()
+                .filter(options::includes)
+                .toList());
+        Map<String, String> sortColumn = sortForList(matches, options.sort());
+        StringBuilder result = new StringBuilder(options.heading(matches.size()));
+        for (Student student : matches) {
+            result.append(System.lineSeparator()).append("  ").append(student.getStudentId()).append("  ")
+                    .append(student.getName()).append(" (").append(student.getLevel()).append(")  ")
+                    .append(subjectText(student)).append(student.isArchived() ? "  [archived]" : "")
+                    .append(student.isFlagged() ? "  [flagged]" : "")
+                    .append(sortColumn.getOrDefault(student.getStudentId(), ""));
+        }
+        return result.toString();
+    }
+
+    /**
+     * Sorts the students for {@code sort/owed} or {@code sort/last}, and returns the value each row was sorted
+     * by, as text to add to the row, keyed by student ID. Without a sort, the list keeps its ID order.
+     *
+     * <p>Both sorts read the lessons once, then sort by the per-student value. List.sort is stable, so students
+     * with equal values keep the ID order that findStudents returned.
+     */
+    private Map<String, String> sortForList(List<Student> students, String sort) {
+        LocalDate today = LocalDate.now(clock);
+        Map<String, String> column = new HashMap<>();
+        if (SORT_OWED.equals(sort)) {
+            Map<String, BigDecimal> owed = amountsOwed(today);
+            students.sort(Comparator.comparing(
+                    (Student student) -> owed.getOrDefault(student.getStudentId(), BigDecimal.ZERO)).reversed());
+            students.forEach(student -> column.put(student.getStudentId(), "  owes "
+                    + Formats.money(owed.getOrDefault(student.getStudentId(), BigDecimal.ZERO))));
+        } else if (SORT_LAST.equals(sort)) {
+            Map<String, LocalDate> lastLessons = lastLessonDates(today);
+            // A student with no past lesson has waited longest of all, so LocalDate.MIN puts them first.
+            students.sort(Comparator.comparing(
+                    (Student student) -> lastLessons.getOrDefault(student.getStudentId(), LocalDate.MIN)));
+            students.forEach(student -> {
+                LocalDate last = lastLessons.get(student.getStudentId());
+                column.put(student.getStudentId(), last == null ? "  no past lessons"
+                        : "  last lesson " + last.format(Formats.DISPLAY_DATE));
+            });
+        }
+        return column;
+    }
+
+    /**
+     * What {@code list [NAME] [status/STATUS] [sort/SORT]} asks for.
+     *
+     * @param query The name text to search for; empty to list everyone.
+     * @param status {@code active}, {@code archived} or {@code all}.
+     * @param sort {@code owed}, {@code last}, or null to keep ID order.
+     */
+    private record ListOptions(String query, String status, String sort) {
+        /** Reads the name query and the optional status/ and sort/ values, which come after the query. */
+        static ListOptions parse(String arguments) {
+            String query = arguments;
+            String status = "active";
+            String sort = null;
+            int prefixStart = findListPrefix(arguments);
+            if (prefixStart >= 0) {
+                query = arguments.substring(0, prefixStart).trim();
+                ArgumentParser.Fields fields = ArgumentParser.parseFields(arguments.substring(prefixStart),
+                        List.of("status", "sort"));
+                status = fields.singleOr("status", status).toLowerCase(Locale.ROOT);
+                sort = fields.has("sort") ? fields.single("sort", true).toLowerCase(Locale.ROOT) : null;
+            }
+            if (!List.of("active", "archived", "all").contains(status)) {
+                throw new IllegalArgumentException("Use status/active, status/archived or status/all.");
+            }
+            if (sort != null && !List.of(SORT_OWED, SORT_LAST).contains(sort)) {
+                throw new IllegalArgumentException("Use sort/owed or sort/last.");
+            }
+            return new ListOptions(query, status, sort);
+        }
+
+        /** Returns true if the student's archive state matches the requested status. */
+        boolean includes(Student student) {
+            return status.equals("all") || student.isArchived() == status.equals("archived");
+        }
+
+        /** Returns the heading, e.g. {@code 2 students (all) match "tan", most owed first:}. */
+        String heading(int count) {
+            String scope = status.equals("active") ? "" : " (" + status + ")";
+            String order = sort == null ? "" : SORT_OWED.equals(sort) ? ", most owed first"
+                    : ", longest since last lesson first";
+            return Formats.count(count, "student") + scope + (query.isEmpty() ? "" : " match \"" + query + "\"")
+                    + order + ":";
+        }
+    }
+
+    /**
+     * Returns where the first {@code status/} or {@code sort/} style prefix starts, or -1 if there is none.
+     * An "s/o" or "d/o" word is part of the name being searched for, so {@code list ravi s/o} finds
+     * "Ravi s/o Kumar". {@code list} has no {@code s/} or {@code d/} prefix, so any case is accepted.
+     */
+    private static int findListPrefix(String arguments) {
+        Matcher prefix = LIST_PREFIX.matcher(arguments);
+        while (prefix.find()) {
+            if (!Student.isNameConnectorAt(arguments, prefix.start())) {
+                return prefix.start();
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Totals what each student still owes, keyed by student ID. It counts the same lessons as the
+     * {@code owed} and {@code unpaid} commands: not paid, not cancelled, and dated today or earlier.
+     */
+    private Map<String, BigDecimal> amountsOwed(LocalDate today) {
+        Map<String, BigDecimal> totals = new HashMap<>();
+        for (Lesson lesson : data.getLessons()) {
+            if (lesson.isOwedOn(today)) {
+                totals.merge(lesson.getStudentId().toUpperCase(Locale.ROOT), lesson.getAmountOwed(), BigDecimal::add);
+            }
+        }
+        return totals;
+    }
+
+    /** Finds each student's most recent lesson date that has taken place, keyed by student ID. */
+    private Map<String, LocalDate> lastLessonDates(LocalDate today) {
+        Map<String, LocalDate> latest = new HashMap<>();
+        for (Lesson lesson : data.getLessons()) {
+            if (lesson.hasTakenPlaceBy(today)) {
+                latest.merge(lesson.getStudentId().toUpperCase(Locale.ROOT), lesson.getDate(),
+                        (first, second) -> first.isAfter(second) ? first : second);
+            }
+        }
+        return latest;
+    }
+
+    /** Archives or restores a profile without changing its linked records or permanent ID. */
+    private String setArchived(String arguments, boolean shouldArchive) {
+        Student student = data.getStudent(singleId(arguments));
+        if (student.isArchived() == shouldArchive) {
+            return student.getStudentId() + " " + student.getName() + " is already "
+                    + (shouldArchive ? "archived." : "active.");
+        }
+        data.replaceStudent(student.withArchived(shouldArchive));
+        LOGGER.log(Level.FINE, "Student {0} archive state changed to {1}",
+                new Object[]{student.getStudentId(), shouldArchive});
+        return (shouldArchive ? "Archived " : "Restored ") + student.getStudentId() + ": " + student.getName()
+                + " (" + student.getLevel() + ")." + System.lineSeparator()
+                + (shouldArchive
+                        ? "History is kept. Existing lessons are unchanged; restore before scheduling new ones."
+                        : "The student is active again. History and existing lessons are unchanged.");
+    }
+
+    /**
+     * Handles {@code flag STUDENT_ID [REASON]} (US14): marks the student as needing extra attention, so the
+     * tutor can see where to spend prep time. Flagging an already-flagged student replaces the reason.
+     */
+    private String flag(String arguments) {
+        String[] words = arguments.split("\\s+", 2);
+        if (arguments.isBlank()) {
+            throw new IllegalArgumentException("Use: flag STUDENT_ID [REASON]");
+        }
+        Student student = data.getStudent(singleId(words[0]));
+        String reason = words.length == 2 ? words[1].strip() : "";
+        boolean wasFlagged = student.isFlagged();
+        Student updated = student.withAttentionReason(reason);
+        data.replaceStudent(updated);
+        LOGGER.log(Level.FINE, "Student {0} flagged; replaced an earlier flag: {1}",
+                new Object[]{student.getStudentId(), wasFlagged});
+        return (wasFlagged ? "Updated flag on " : "Flagged ") + student.getStudentId() + ": " + student.getName()
+                + " (" + student.getLevel() + ") as needing extra attention." + System.lineSeparator()
+                + "Reason: " + reasonText(updated);
+    }
+
+    /** Handles {@code unflag STUDENT_ID}, which removes the attention flag and its reason. */
+    private String unflag(String arguments) {
+        Student student = data.getStudent(singleId(arguments));
+        if (!student.isFlagged()) {
+            return student.getStudentId() + " " + student.getName() + " is not flagged.";
+        }
+        data.replaceStudent(student.withAttentionReason(null));
+        return "Removed the flag on " + student.getStudentId() + ": " + student.getName()
+                + " (" + student.getLevel() + ").";
+    }
+
+    /** Handles {@code flagged}: every flagged student with their reason, active students first. */
+    private String listFlagged(String arguments) {
+        if (!arguments.isEmpty()) {
+            throw new IllegalArgumentException("Use: flagged");
+        }
+        // findStudents returns numeric ID order (S2 before S10), so the list does not depend on the order of
+        // the data file. Archived students are rarely being prepared for, so they go last instead of being
+        // hidden; the sort is stable, so each group stays in ID order.
+        List<Student> flagged = data.findStudents("").stream()
+                .filter(Student::isFlagged)
+                .sorted(Comparator.comparing(Student::isArchived))
+                .toList();
+        StringBuilder result = new StringBuilder(Formats.count(flagged.size(), "student")
+                + " flagged as needing extra attention" + (flagged.isEmpty() ? "." : ":"));
+        for (Student student : flagged) {
+            result.append(System.lineSeparator()).append("  ").append(student.getStudentId()).append("  ")
+                    .append(student.getName()).append(" (").append(student.getLevel()).append(")  ")
+                    .append(reasonText(student)).append(student.isArchived() ? "  [archived]" : "");
+        }
+        return result.toString();
+    }
+
+    /** Shows a flag's reason, or says that none was given, so the line is never left blank. */
+    static String reasonText(Student student) {
+        assert student.isFlagged() : "Only a flagged student has a reason to show";
+        String reason = student.getAttentionReason().orElse("");
+        return reason.isEmpty() ? "(no reason given)" : reason;
+    }
+
+    private String edit(String arguments) {
+        IdAndFields input = parseIdAndFields(arguments, List.of("n", "l", "p", "s", "r"), NAME_FIELDS);
+        if (input.fields().isEmpty()) {
+            throw new IllegalArgumentException("Give at least one value to edit.");
+        }
+        Student student = data.getStudent(input.id());
+        String name = input.fields().singleOr("n", student.getName());
+        String level = input.fields().singleOr("l", student.getLevel());
+        String phone = input.fields().singleOr("p", student.getPhoneNumber());
+        List<String> subjects = input.fields().has("s") ? input.fields().values("s") : student.getSubjects();
+        if (subjects.size() > 1 && subjects.stream().anyMatch(String::isBlank)) {
+            throw new IllegalArgumentException("Use s/ alone to clear all subjects.");
+        }
+        if (subjects.size() == 1 && subjects.getFirst().isBlank()) {
+            subjects = List.of();
+        }
+        Student updated = student.withDetails(name, level, phone, subjects);
+        if (input.fields().has("r")) {
+            // Only edit accepts a blank r/, which deliberately clears the rate.
+            updated = updated.withDefaultHourlyRate(input.fields().single("r", false));
+        }
+        data.replaceStudent(updated);
+        return "Edited " + details(updated) + System.lineSeparator() + "Subjects: " + subjectText(updated)
+                + (input.fields().has("r") ? System.lineSeparator() + rateText(updated) : "");
+    }
+
+    /**
+     * Handles {@code delete STUDENT_ID [confirm]} (US34). Without explicit confirmation, a student with any
+     * linked record (lesson, homework, score or follow-up task) receives a warning and all records stay
+     * unchanged. Only a student with no linked records is deleted straight away.
+     */
+    private String delete(String arguments) {
+        String[] words = arguments.split("\\s+");
+        if (arguments.isBlank() || words.length > 2
+                || (words.length == 2 && !words[1].equalsIgnoreCase("confirm"))) {
+            throw new IllegalArgumentException("Use: delete STUDENT_ID [confirm]");
+        }
+        Student student = data.getStudent(singleId(words[0]));
+        boolean isConfirmed = words.length == 2;
+        if (!isConfirmed) {
+            // Every linked record is deleted with the student, so any of them is worth a warning first.
+            LinkedRecords linked = countLinkedRecords(student.getStudentId());
+            if (linked.total() > 0) {
+                return deletionWarning(student, linked);
+            }
+        }
+        LOGGER.log(Level.FINE, "Deleting student {0}; explicitly confirmed: {1}",
+                new Object[]{student.getStudentId(), isConfirmed});
+        TutorLedgerData.Deletion removed = data.deleteStudent(student.getStudentId());
+        String result = "Deleted " + student.getStudentId() + ": " + student.getName() + " (" + student.getLevel()
+                + ")" + System.lineSeparator()
+                + "Also deleted " + Formats.count(removed.lessonCount(), "lesson") + " and "
+                + Formats.count(removed.homeworkCount(), "homework item") + ".";
+        // Scores are only mentioned when there were some, so the usual message stays short.
+        if (removed.scoreCount() > 0) {
+            result += System.lineSeparator() + "Also deleted " + Formats.count(removed.scoreCount(), "score") + ".";
+        }
+        if (removed.taskCount() > 0) {
+            result += System.lineSeparator() + "Also deleted "
+                    + Formats.count(removed.taskCount(), "follow-up task") + ".";
+        }
+        return result;
+    }
+
+    /** Counts the records that deleting the student would also remove. */
+    private LinkedRecords countLinkedRecords(String id) {
+        long lessonCount = data.getLessons().stream()
+                .filter(lesson -> id.equalsIgnoreCase(lesson.getStudentId())).count();
+        long homeworkCount = data.getHomework().stream()
+                .filter(item -> id.equalsIgnoreCase(item.getStudentId())).count();
+        long scoreCount = data.getScores().stream()
+                .filter(score -> id.equalsIgnoreCase(score.getStudentId())).count();
+        long taskCount = data.getTasks().stream()
+                .filter(task -> task.getStudentId().filter(id::equalsIgnoreCase).isPresent()).count();
+        return new LinkedRecords(lessonCount, homeworkCount, scoreCount, taskCount);
+    }
+
+    /** Describes the current cascade without deleting anything or remembering a pending action. */
+    private String deletionWarning(Student student, LinkedRecords linked) {
+        assert student != null : "A deletion warning needs an existing student";
+        assert linked.total() > 0 : "Only students with linked records require a deletion warning";
+        String id = student.getStudentId();
+        LOGGER.log(Level.FINE, "Deletion requires confirmation for {0}: {1}", new Object[]{id, linked});
+        // Follow-up tasks are only mentioned when there are some, so the usual warning stays short.
+        String taskLine = linked.taskCount() == 0 ? ""
+                : "  " + Formats.count(linked.taskCount(), "follow-up task") + "." + System.lineSeparator();
+        return "Warning: deleting " + id + ": " + student.getName() + " (" + student.getLevel()
+                + ") will permanently remove:" + System.lineSeparator()
+                + "  " + Formats.count(linked.lessonCount(), "lesson") + ", "
+                + Formats.count(linked.homeworkCount(), "homework item")
+                + " and " + Formats.count(linked.scoreCount(), "score") + "." + System.lineSeparator()
+                + taskLine
+                + "This cannot be undone. No records have been deleted." + System.lineSeparator()
+                + "To confirm, type: delete " + id + " confirm" + System.lineSeparator()
+                + "Otherwise, continue with another command.";
+    }
+
+    /** How many of each kind of record belong to one student. */
+    private record LinkedRecords(long lessonCount, long homeworkCount, long scoreCount, long taskCount) {
+        long total() {
+            return lessonCount + homeworkCount + scoreCount + taskCount;
+        }
+    }
+
+    /**
+     * Handles {@code view STUDENT_ID}: the student's profile, every lesson newest first, outstanding homework
+     * and the amount owed.
+     */
+    private String view(String arguments) {
+        Student student = data.getStudent(singleId(arguments));
+        String id = student.getStudentId();
+        List<Lesson> lessons = data.getLessons().stream()
+                .filter(lesson -> id.equalsIgnoreCase(lesson.getStudentId()))
+                .sorted(Comparator.comparing(Lesson::getDate).thenComparing(Lesson::getTime)
+                        .thenComparing(Lesson::getLessonId).reversed())
+                .toList();
+        List<Homework> outstanding = data.getHomework().stream()
+                .filter(item -> id.equalsIgnoreCase(item.getStudentId()))
+                .filter(item -> !item.isSubmitted())
+                .sorted(Comparator.comparing(Homework::getDueDate).thenComparing(Homework::getHomeworkId))
+                .toList();
+
+        List<String> lines = new ArrayList<>(profileLines(student));
+        lines.add("Lessons");
+        lessons.forEach(lesson -> lines.addAll(lessonLines(lesson)));
+        // A heading with nothing under it looks like missing output, so an empty section says none.
+        if (lessons.isEmpty()) {
+            lines.add("  none");
+        }
+        lines.add("Outstanding homework");
+        outstanding.forEach(item -> lines.add("  " + item.getHomeworkId() + "  " + item.getDescription()
+                + "  due " + Formats.DISPLAY_DATE.format(item.getDueDate())));
+        if (outstanding.isEmpty()) {
+            lines.add("  none");
+        }
+        lines.add(owedLine(lessons));
+        return String.join(System.lineSeparator(), lines);
+    }
+
+    /** Returns the lines at the top of {@code view}: contact details, status, flag, subjects and rate. */
+    private static List<String> profileLines(Student student) {
+        List<String> lines = new ArrayList<>();
+        lines.add(student.getStudentId() + "  " + student.getName() + "  (" + student.getLevel() + ")  "
+                + student.getPhoneNumber());
+        if (student.isArchived()) {
+            lines.add("Status: archived");
+        }
+        if (student.isFlagged()) {
+            lines.add("Flagged: " + reasonText(student));
+        }
+        lines.add("Subjects: " + subjectText(student));
+        lines.add(rateText(student));
+        return lines;
+    }
+
+    /**
+     * Returns one lesson in {@code view}: a row with its slot, fee, attendance and payment, followed by its
+     * cancellation reason and notes, if any, on lines of their own.
+     */
+    private static List<String> lessonLines(Lesson lesson) {
+        String attendance = lesson.isCancelled() ? "cancelled"
+                : lesson.getAttendance().name().toLowerCase(Locale.ROOT).replace('_', ' ');
+        StringBuilder row = new StringBuilder("  " + lesson.getLessonId() + "  "
+                + Formats.DISPLAY_DATE.format(lesson.getDate()) + " " + Formats.TIME.format(lesson.getTime())
+                + "  " + lesson.getSubject() + "  " + Formats.money(lesson.getFee()) + "  " + attendance
+                + "  " + lesson.getPaymentStatus());
+        if (lesson.isCancelled()) {
+            row.append(" [not chargeable]");
+            if (lesson.getAmountPaid().signum() > 0) {
+                row.append("  ").append(Formats.money(lesson.getAmountPaid())).append(" paid");
+            }
+        } else if (lesson.getAmountPaid().signum() > 0 && !lesson.getPaymentStatus().equals(Lesson.PAYMENT_PAID)) {
+            row.append("  ").append(Formats.money(lesson.getAmountPaid())).append(" paid, ")
+                    .append(Formats.money(lesson.getAmountOwed())).append(" remaining");
+        }
+        if (lesson.getDurationMinutes() != Lesson.DEFAULT_DURATION_MINUTES) {
+            row.append("  ").append(lesson.getDurationMinutes()).append(" min");
+        }
+        List<String> lines = new ArrayList<>(List.of(row.toString()));
+        if (lesson.isCancelled()) {
+            lines.add("       Reason: " + lesson.getCancellationReason());
+        }
+        if (!lesson.getNotes().isBlank()) {
+            lines.add("       " + lesson.getNotes());
+        }
+        return lines;
+    }
+
+    /** Returns the last line of {@code view}: the total owed for lessons up to today, and how many. */
+    private String owedLine(List<Lesson> lessons) {
+        LocalDate today = LocalDate.now(clock);
+        List<Lesson> owedLessons = lessons.stream().filter(lesson -> lesson.isOwedOn(today)).toList();
+        BigDecimal owed = owedLessons.stream().map(Lesson::getAmountOwed).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return "Amount owed: " + Formats.money(owed) + " (" + Formats.count(owedLessons.size(), "lesson") + ")";
+    }
+
+    private static String details(Student student) {
+        return student.getStudentId() + ": " + student.getName() + " (" + student.getLevel() + "), "
+                + student.getPhoneNumber();
+    }
+
+    private static String subjectText(Student student) {
+        return student.getSubjects().isEmpty() ? "none" : String.join(", ", student.getSubjects());
+    }
+
+    /** Formats the optional rate consistently for add, edit and view. */
+    private static String rateText(Student student) {
+        return "Default hourly rate: " + student.getDefaultHourlyRate()
+                .map(rate -> Formats.money(rate) + "/hour").orElse("not set");
+    }
+
+    private static String singleId(String argument) {
+        if (!argument.matches("(?i)S[1-9]\\d*")) {
+            throw new IllegalArgumentException("Give a student ID such as S1.");
+        }
+        return argument;
+    }
+
+    private static IdAndFields parseIdAndFields(String arguments, List<String> allowed, Set<String> names) {
+        String[] pieces = arguments.split("\\s+", 2);
+        String id = singleId(pieces[0]);
+        String remainder = pieces.length == 2 ? pieces[1] : "";
+        return new IdAndFields(id, ArgumentParser.parseFields(remainder, allowed, Set.of(), names));
+    }
+
+    private record IdAndFields(String id, ArgumentParser.Fields fields) {
+    }
+}

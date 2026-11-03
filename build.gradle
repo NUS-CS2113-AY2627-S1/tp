@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'application'
     id 'checkstyle'
+    id 'jacoco'
     id 'com.gradleup.shadow' version '9.5.1'
 }
 
@@ -25,6 +26,8 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    enableAssertions = true
+    finalizedBy jacocoTestReport
 
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -37,8 +40,17 @@ test {
     }
 }
 
+jacocoTestReport {
+    dependsOn test
+    reports {
+        html.required = true
+        xml.required = true
+    }
+}
+
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'seedu.tutorledger.TutorLedger'
+    applicationDefaultJvmArgs = ['-ea']
 }
 
 jar {
@@ -49,7 +61,7 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'tutorledger.jar'
 }
 
 checkstyle {
@@ -58,4 +70,12 @@ checkstyle {
 
 run {
     standardInput = System.in
+    // Java ignores assert statements unless the JVM is started with -ea; this does that for `gradlew run`.
+    // (The test task already enables them by default.)
+    enableAssertions = true
+}
+
+// Also covers JavaExec tasks created by IDE Gradle run configurations.
+tasks.withType(JavaExec).configureEach {
+    enableAssertions = true
 }
