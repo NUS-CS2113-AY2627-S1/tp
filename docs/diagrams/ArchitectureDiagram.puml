@@ -1,0 +1,21 @@
+@startuml
+!pragma layout smetana
+skinparam defaultTextAlignment center
+
+rectangle "StockHolm\nmain loop" as Main
+rectangle "UI\nUi, InputReader, Printer" as UI
+rectangle "Parser\nsyntax" as Parser
+rectangle "Processor\nbusiness rules" as Processor
+rectangle "Storage\npersistence" as Storage
+rectangle "AppState\ncurrent data" as State
+rectangle "Model\ninventories and orders" as Model
+
+Main -down-> UI : reads / prints
+Main -down-> Parser : parses input
+Main -down-> Processor : runs command
+Main -down-> Storage : loads / saves
+Main -down-> State : creates / reads
+Processor -down-> State : changes
+Storage -down-> State : restores / saves
+State -down-> Model : holds
+@enduml

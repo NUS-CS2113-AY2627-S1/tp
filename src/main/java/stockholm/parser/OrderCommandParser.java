@@ -1,0 +1,206 @@
+package stockholm.parser;
+
+import static stockholm.parser.ArgumentParser.parseOptions;
+import static stockholm.parser.ArgumentParser.requireArg;
+import static stockholm.parser.ArgumentParser.requireIndex;
+import static stockholm.parser.ArgumentParser.requirePositiveDecimal;
+import static stockholm.parser.ArgumentParser.splitFirstWord;
+
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+import stockholm.command.ArgKey;
+import stockholm.command.Command;
+import stockholm.command.CommandType;
+import stockholm.exceptions.StockHolmException;
+
+/**
+ * Parses commands about orders: {@code order list}, {@code import}, {@code export}, {@code transfer}, {@code approve},
+ * {@code reject}, {@code cancel} and {@code deliver}.
+ */
+final class OrderCommandParser {
+    /** Optional prefix before a rejection reason, as in {@code reject 1 --reason="Damaged"}. */
+    private static final String REASON_OPTION = "--reason=";
+
+    private static final Set<String> ALLOWED_ORDER_OPTIONS = Set.of(
+            "page", "size", "limit", "status", "state", "inv", "inventory", "type", "kind");
+    private static final Set<String> ALLOWED_AFTER_PAGE_OPTIONS = Set.of(
+            "size", "limit", "status", "state", "inv", "inventory", "type", "kind");
+    private static final Set<String> ALLOWED_STATUSES = Set.of(
+            "WAITING_APPROVAL", "WAITING_FOR_DELIVERY", "DELIVERED", "REJECTED", "CANCELED");
+
+    private OrderCommandParser() {
+    }
+
+    /** Parses the part after {@code order}; handles {@code order list [PAGE] [options]}. */
+    static Command parseOrderCommand(String rest) throws StockHolmException {
+        String usage = CommandType.ORDER_LIST.usage();
+        String[] parts = splitFirstWord(rest);
+        if (!parts[0].equals("list")) {
+            throw new StockHolmException("Usage: " + usage);
+        }
+        String argsText = parts[1].trim();
+        if (argsText.isEmpty()) {
+            return new Command(CommandType.ORDER_LIST);
+        }
+        Map<ArgKey, String> args = new EnumMap<>(ArgKey.class);
+        if (argsText.startsWith("--")) {
+            Map<String, String> options = parseOptions(argsText, usage, ALLOWED_ORDER_OPTIONS);
+            extractOrderListOptions(options, args, usage);
+        } else {
+            String[] pageAndOptions = splitFirstWord(argsText);
+            args.put(ArgKey.ORDER_PAGE, requireIndex(pageAndOptions[0], "page number", usage));
+            if (!pageAndOptions[1].isEmpty()) {
+                Map<String, String> options = parseOptions(pageAndOptions[1], usage, ALLOWED_AFTER_PAGE_OPTIONS);
+                extractOrderListOptions(options, args, usage);
+            }
+        }
+        return new Command(CommandType.ORDER_LIST, args);
+    }
+
+    /** Extracts and validates options for {@code order list}. */
+    private static void extractOrderListOptions(Map<String, String> options, Map<ArgKey, String> args, String usage)
+            throws StockHolmException {
+        if (options.containsKey("size") && options.containsKey("limit")) {
+            throw new StockHolmException("Cannot specify both --size and --limit. Usage: " + usage);
+        }
+        if (options.containsKey("status") && options.containsKey("state")) {
+            throw new StockHolmException("Cannot specify both --status and --state. Usage: " + usage);
+        }
+        if (options.containsKey("inv") && options.containsKey("inventory")) {
+            throw new StockHolmException("Cannot specify both --inv and --inventory. Usage: " + usage);
+        }
+        if (options.containsKey("type") && options.containsKey("kind")) {
+            throw new StockHolmException("Cannot specify both --type and --kind. Usage: " + usage);
+        }
+
+        if (options.containsKey("page")) {
+            args.put(ArgKey.ORDER_PAGE, requireIndex(options.get("page"), "page number", usage));
+        }
+        if (options.containsKey("size")) {
+            args.put(ArgKey.ORDER_PAGE_SIZE, requireIndex(options.get("size"), "page size", usage));
+        } else if (options.containsKey("limit")) {
+            args.put(ArgKey.ORDER_PAGE_SIZE, requireIndex(options.get("limit"), "page size", usage));
+        }
+
+        if (options.containsKey("status")) {
+            args.put(ArgKey.ORDER_STATUS, parseOrderStatus(options.get("status"), usage));
+        } else if (options.containsKey("state")) {
+            args.put(ArgKey.ORDER_STATUS, parseOrderStatus(options.get("state"), usage));
+        }
+
+        if (options.containsKey("inv")) {
+            args.put(ArgKey.ORDER_INV, requireArg(options.get("inv").trim(), "inventory name", usage));
+        } else if (options.containsKey("inventory")) {
+            args.put(ArgKey.ORDER_INV, requireArg(options.get("inventory").trim(), "inventory name", usage));
+        }
+
+        if (options.containsKey("type")) {
+            args.put(ArgKey.ORDER_TYPE, parseOrderType(options.get("type"), usage));
+        } else if (options.containsKey("kind")) {
+            args.put(ArgKey.ORDER_TYPE, parseOrderType(options.get("kind"), usage));
+        }
+    }
+
+    /** Validates an order status string, case-insensitively. */
+    private static String parseOrderStatus(String status, String usage) throws StockHolmException {
+        requireArg(status.trim(), "order status", usage);
+        String upper = status.trim().toUpperCase(Locale.ROOT);
+        if (upper.equals("CANCELLED")) {
+            upper = "CANCELED";
+        }
+        if (ALLOWED_STATUSES.contains(upper)) {
+            return upper;
+        }
+        throw new StockHolmException("Unknown order status: " + status.trim()
+                + ". Allowed statuses: WAITING_APPROVAL, WAITING_FOR_DELIVERY, DELIVERED, REJECTED, CANCELED.");
+    }
+
+    /** Validates an order type/kind string, case-insensitively. */
+    private static String parseOrderType(String type, String usage) throws StockHolmException {
+        requireArg(type.trim(), "order type", usage);
+        String lower = type.trim().toLowerCase(Locale.ROOT);
+        if (lower.equals("import") || lower.equals("export") || lower.equals("transfer")) {
+            return lower;
+        }
+        throw new StockHolmException("Unknown order type: " + type.trim()
+                + ". Allowed types: import, export, transfer.");
+    }
+
+    /**
+     * Parses {@code import NAME [--type=TYPE] [--count=COUNT]}, which has the same syntax as {@code item add}.
+     */
+    static Command parseImport(String rest) throws StockHolmException {
+        return ItemCommandParser.parseNameTypeCount(rest, CommandType.IMPORT);
+    }
+
+    /** Parses {@code INDEX [--count=COUNT]} with a positive count; stock is checked by the Processor. */
+    static Command parseExport(String arguments) throws StockHolmException {
+        return parseStockOrder(arguments, CommandType.EXPORT);
+    }
+
+    /** Parses a transfer's item index, optional count, and optional inventory names. */
+    static Command parseTransfer(String arguments) throws StockHolmException {
+        return parseStockOrder(arguments, CommandType.TRANSFER);
+    }
+
+    /** Shares index and count validation for orders reserving existing stock. */
+    private static Command parseStockOrder(String arguments, CommandType type) throws StockHolmException {
+        String usage = type.usage();
+        String[] indexAndOptions = splitFirstWord(arguments);
+        Map<ArgKey, String> args = new EnumMap<>(ArgKey.class);
+        args.put(ArgKey.ITEM_INDEX, requireIndex(indexAndOptions[0], "item number", usage));
+
+        Set<String> allowed = type == CommandType.TRANSFER ? Set.of("count", "from", "to") : Set.of("count");
+        Map<String, String> options = parseOptions(indexAndOptions[1], usage, allowed);
+        if (options.containsKey("count")) {
+            args.put(ArgKey.ITEM_COUNT, requirePositiveDecimal(options.get("count"), "Count"));
+        }
+        if (options.containsKey("from")) {
+            args.put(ArgKey.INV_FROM, requireArg(options.get("from").trim(), "source inventory name", usage));
+        }
+        if (options.containsKey("to")) {
+            args.put(ArgKey.INV_TO, requireArg(options.get("to").trim(), "destination inventory name", usage));
+        }
+        return new Command(type, args);
+    }
+
+    /**
+     * Parses the one-based order number displayed by {@code order list}, shared by {@code approve},
+     * {@code cancel} and {@code deliver}.
+     *
+     * @param type the command to build; its usage is shown in error messages
+     */
+    static Command parseOrderIndex(String arguments, CommandType type) throws StockHolmException {
+        return new Command(type, Map.of(ArgKey.ORDER_INDEX, requireIndex(arguments, "order number", type.usage())));
+    }
+
+    /**
+     * Parses {@code reject INDEX REASON}: a one-based order number and a non-blank rejection reason.
+     * The reason may be wrapped in quotes, and may also be given as {@code --reason=REASON}.
+     *
+     * @param arguments the text after {@code reject}
+     * @return the parsed reject command
+     * @throws StockHolmException if the order number or reason is missing or malformed
+     */
+    static Command parseReject(String arguments) throws StockHolmException {
+        String usage = CommandType.REJECT.usage();
+        String[] parts = splitFirstWord(arguments);
+        String index = requireIndex(parts[0], "order number", usage);
+        String reason = parts[1];
+        if (reason.startsWith(REASON_OPTION)) {
+            reason = reason.substring(REASON_OPTION.length()).trim();
+        }
+        if (reason.startsWith("\"")) {
+            if (reason.length() < 2 || !reason.endsWith("\"")) {
+                throw new StockHolmException("Missing closing quote in rejection reason. Usage: " + usage);
+            }
+            reason = reason.substring(1, reason.length() - 1).trim();
+        }
+        return new Command(CommandType.REJECT, Map.of(
+                ArgKey.ORDER_INDEX, index,
+                ArgKey.ORDER_REASON, requireArg(reason, "rejection reason", usage)));
+    }
+}

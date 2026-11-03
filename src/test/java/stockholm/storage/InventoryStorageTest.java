@@ -1,0 +1,192 @@
+package stockholm.storage;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import stockholm.inventory.Inventory;
+import stockholm.inventory.Item;
+
+/** Tests the inventory JSON format using an isolated file in a temporary folder. */
+class InventoryStorageTest {
+    @TempDir
+    private Path temporaryDirectory;
+
+    private Path file;
+    private InventoryStorage storage;
+
+    @BeforeEach
+    public void setUp() {
+        file = temporaryDirectory.resolve("data").resolve("inventories.json");
+        storage = new InventoryStorage(file);
+    }
+
+    @Test
+    public void load_missingFile_returnsEmptyResult() throws IOException {
+        InventoryStorage.LoadResult result = storage.load();
+        assertTrue(result.inventories().isEmpty());
+        assertTrue(result.warnings().isEmpty());
+        assertEquals(0, result.loadedCount());
+    }
+
+    @Test
+    public void save_missingFolder_createsFolderAndFileWithoutTemporaryFiles() throws IOException {
+        storage.save(List.of(new Inventory("Shop")));
+
+        assertTrue(Files.exists(file));
+        try (Stream<Path> files = Files.list(file.getParent())) {
+            assertEquals(List.of(file), files.toList());
+        }
+    }
+
+    @Test
+    public void saveThenLoad_inventoriesAndItems_roundTrip() throws IOException {
+        Inventory shop = new Inventory("Main Shop");
+        shop.addItem(new Item("A4 Paper Case", "Stationery", 2));
+        shop.addItem(new Item("Pen", "", 1));
+        shop.addItem(new Item("Rice", "Food", 2.5));
+
+        storage.save(List.of(shop, new Inventory("Warehouse")));
+        InventoryStorage.LoadResult result = storage.load();
+
+        assertEquals(2, result.loadedCount());
+        assertTrue(result.warnings().isEmpty());
+        assertEquals("Main Shop", result.inventories().get(0).getName());
+        assertEquals("Warehouse", result.inventories().get(1).getName());
+        assertTrue(result.inventories().get(1).getItems().isEmpty());
+        List<Item> items = result.inventories().get(0).getItems();
+        assertEquals(3, items.size());
+        assertEquals("A4 Paper Case (Stationery) x2", items.get(0).toString());
+        assertEquals("Pen x1", items.get(1).toString());
+        assertEquals("Rice (Food) x2.5", items.get(2).toString());
+    }
+
+    @Test
+    public void save_existingFile_replacesIt() throws IOException {
+        storage.save(List.of(new Inventory("Old")));
+        storage.save(List.of(new Inventory("New")));
+
+        List<Inventory> loaded = storage.load().inventories();
+        assertEquals(1, loaded.size());
+        assertEquals("New", loaded.get(0).getName());
+    }
+
+    @Test
+    public void load_missingType_usesEmptyType() throws IOException {
+        writeFile("{\"inventories\": [{\"name\": \"Shop\", \"items\": [{\"name\": \"Pen\", \"count\": 3}]}]}");
+        assertEquals("Pen x3", storage.load().inventories().get(0).getItems().get(0).toString());
+    }
+
+    @Test
+    public void load_corruptFile_throwsCorruptFileException() throws IOException {
+        for (String content : new String[]{"not json", "{broken", "{}", "null", "[]"}) {
+            writeFile(content);
+            assertThrows(InventoryStorage.CorruptFileException.class, () -> storage.load(),
+                    "should reject: " + content);
+        }
+    }
+
+    @Test
+    public void load_unreadableFile_throwsPlainIoException() throws IOException {
+        Files.createDirectories(file);
+        IOException e = assertThrows(IOException.class, () -> storage.load());
+        assertTrue(!(e instanceof InventoryStorage.CorruptFileException));
+    }
+
+    @Test
+    public void load_invalidEntries_skipsOrRenamesThemWithWarningsAndKeepsTheRest() throws IOException {
+        writeFile("{\"inventories\": ["
+                + "{\"name\": \"Shop\", \"items\": ["
+                + "{\"name\": \"Pen\", \"count\": 2},"
+                + "{\"name\": \"Zero\", \"count\": 0},"
+                + "{\"name\": \"Negative\", \"count\": -1},"
+                + "{\"name\": \"Missing\"},"
+                + "{\"count\": 1}"
+                + "]},"
+                + "{\"items\": []},"
+                + "{\"name\": \"Shop\", \"items\": []},"
+                + "{\"name\": \"NoItems\"},"
+                + "{\"name\": \"Warehouse\", \"items\": []}"
+                + "]}");
+
+        InventoryStorage.LoadResult result = storage.load();
+
+        assertEquals(4, result.loadedCount());
+        assertEquals(List.of("Shop", "_", "Shop (2)", "Warehouse"),
+                result.inventories().stream().map(Inventory::getName).toList());
+        assertEquals(Map.of(), result.renamedInventories(), "orders naming Shop stay with the first Shop");
+        assertEquals(1, result.inventories().get(0).getItems().size());
+        assertEquals("Pen x2", result.inventories().get(0).getItems().get(0).toString());
+        assertEquals(7, result.warnings().size());
+    }
+
+    @Test
+    public void load_unicodeWhitespaceName_becomesUnderscore() throws IOException {
+        // trim() keeps these spaces, so the name must be checked with isBlank().
+        writeFile("{\"inventories\": [{\"name\": \"\u3000\u2003\", \"items\": []}]}");
+
+        InventoryStorage.LoadResult result = storage.load();
+
+        assertEquals("_", result.inventories().getFirst().getName());
+        assertEquals(Map.of("\u3000\u2003", "_"), result.renamedInventories());
+    }
+
+    @Test
+    public void load_namesTakenAfterCleaning_keepCleanNamesAndNumberTheRest() throws IOException {
+        writeFile("{\"inventories\": [{\"name\": \" Shop \", \"items\": []}, {\"name\": \"Shop (2)\", \"items\": []}, "
+                + "{\"name\": \"Shop\", \"items\": []}, {\"name\": \"\\\"Shop\\\"\", \"items\": []}]}");
+
+        InventoryStorage.LoadResult result = storage.load();
+
+        assertEquals(List.of("Shop (3)", "Shop (2)", "Shop", "Shop (4)"),
+                result.inventories().stream().map(Inventory::getName).toList());
+        assertEquals(Map.of(" Shop ", "Shop (3)", "\"Shop\"", "Shop (4)"), result.renamedInventories());
+        assertEquals(2, result.warnings().size());
+    }
+
+    private void writeFile(String content) throws IOException {
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, content);
+    }
+
+    @Test
+    public void saveThenLoad_itemMinimums_roundTrip() throws IOException {
+        Inventory shop = new Inventory("Shop");
+        Item pen = new Item("Pen", "", 3);
+        pen.setMinCount(5);
+        shop.addItem(pen);
+        shop.addItem(new Item("Rice", "Food", 2.5));
+
+        storage.save(List.of(shop));
+        List<Item> items = storage.load().inventories().get(0).getItems();
+
+        assertEquals(5, items.get(0).getMinCount());
+        assertEquals(0, items.get(1).getMinCount());
+        assertTrue(!Files.readString(file).contains("\"min\": null"), "items without a minimum leave it out");
+    }
+
+    @Test
+    public void load_invalidMinimum_keepsItemWithoutMinimumAndWarns() throws IOException {
+        writeFile("{\"inventories\": [{\"name\": \"Shop\", \"items\": [{\"name\": \"Pen\", \"count\": 3, "
+                + "\"min\": -2}]}]}");
+
+        InventoryStorage.LoadResult result = storage.load();
+
+        Item pen = result.inventories().get(0).getItems().get(0);
+        assertEquals("Pen x3", pen.toString());
+        assertEquals(0, pen.getMinCount());
+        assertEquals(1, result.warnings().size());
+        assertTrue(result.warnings().get(0).startsWith("Ignored the minimum of Pen in Shop"));
+    }
+}

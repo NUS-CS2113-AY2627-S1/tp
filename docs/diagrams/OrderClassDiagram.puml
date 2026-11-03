@@ -1,0 +1,35 @@
+@startuml
+!pragma layout smetana
+hide circle
+hide empty members
+skinparam classAttributeIconSize 0
+
+package "stockholm.order" {
+    abstract class "Order\n{abstract}" as Order {
+        - state : OrderState
+        + approve() : void
+        + reject(reason : String) : void
+        + cancel() : void
+        + deliver() : void
+        + {abstract} getKindLabel() : String <U+007B>abstract<U+007D>
+        + {abstract} getInventoryName() : String <U+007B>abstract<U+007D>
+    }
+
+    class OrderHistory
+
+    class ImportOrder
+    class ExportOrder
+    class TransferOrder
+}
+
+package "stockholm.inventory" {
+    class Inventory
+    class Item
+}
+
+Order <|-- ImportOrder
+Order <|-- ExportOrder
+Order <|-- TransferOrder
+Order --> "1" Item : item {readOnly}
+OrderHistory --> "0..*" Order : orders {ordered}
+@enduml

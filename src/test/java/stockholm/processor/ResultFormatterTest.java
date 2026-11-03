@@ -1,0 +1,143 @@
+package stockholm.processor;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+
+import stockholm.exceptions.StockHolmException;
+import stockholm.inventory.Inventory;
+import stockholm.inventory.Item;
+import stockholm.order.ExportOrder;
+import stockholm.order.ImportOrder;
+import stockholm.order.Order;
+import stockholm.order.OrderHistory;
+import stockholm.order.OrderState;
+
+/**
+ * Tests for {@link ResultFormatter}. Handlers and their rules are tested through {@code ProcessorTest};
+ * these tests only check the layout of each message.
+ */
+class ResultFormatterTest {
+    /** Removes variable clock values so existing layout checks remain deterministic. */
+    private static String withoutOrderTimestamps(String message) {
+        return message.replaceAll("(?m)^   (?:Created|Status changed) \\(UTC\\): [^\\n]+\\n", "");
+    }
+
+    /** Returns an inventory named "Shop" holding the given items, in order. */
+    private static Inventory shopWith(Item... items) {
+        Inventory shop = new Inventory("Shop");
+        for (Item item : items) {
+            shop.addItem(item);
+        }
+        return shop;
+    }
+
+    @Test
+    public void inventoryList_emptyAndNonEmpty_formatsNamesNumberedFromOne() {
+        assertEquals("No inventories yet.", ResultFormatter.inventoryList(List.of()));
+        assertEquals("Inventories:\n1. Shop\n2. Warehouse",
+                ResultFormatter.inventoryList(List.of(new Inventory("Shop"), new Inventory("Warehouse"))));
+    }
+
+    @Test
+    public void itemList_emptyAndNonEmpty_formatsItemsNumberedFromOne() {
+        assertEquals("No items in Shop yet.", ResultFormatter.itemList(shopWith()));
+        assertEquals("Items in Shop:\n1. Pen x3\n2. Rice (Food) x2.5",
+                ResultFormatter.itemList(shopWith(new Item("Pen", "", 3), new Item("Rice", "Food", 2.5))));
+    }
+
+    @Test
+    public void stockLevels_addsTotalsLineWithoutTrailingZeros() {
+        Inventory shop = shopWith(new Item("Pen", "", 3), new Item("Rice", "Food", 2.5));
+        assertEquals("Stock levels in Shop:\n1. Pen x3\n2. Rice (Food) x2.5\nTotal: 2 item(s), 5.5 unit(s)",
+                ResultFormatter.stockLevels(shop, new BigDecimal("5.50")));
+    }
+
+    @Test
+    public void lowStock_keepsItemListNumbersOrSaysNone() {
+        Inventory shop = shopWith(new Item("Pen", "", 9), new Item("Rice", "Food", 1));
+        Map<Integer, Item> lowItems = new LinkedHashMap<>();
+        lowItems.put(2, shop.getItems().get(1));
+
+        assertEquals("Items in Shop below 5:\n2. Rice (Food) x1", ResultFormatter.lowStock(shop, "5", lowItems));
+        assertEquals("No items in Shop below 0.5.", ResultFormatter.lowStock(shop, "0.5", Map.of()));
+    }
+
+    @Test
+    public void orderList_emptyAndNonEmpty_showsKindInventoryStateAndItem() throws StockHolmException {
+        OrderHistory history = new OrderHistory();
+        assertEquals("No orders yet.", ResultFormatter.orderList(history));
+
+        history.add(new ImportOrder(new Item("Pen", "", 3), shopWith()));
+        ExportOrder export = new ExportOrder(new Item("Rice", "Food", 2.5), new Inventory("Warehouse"));
+        export.approve();
+        history.add(export);
+        assertEquals("Orders (Page 1 of 1):"
+                + "\n1. Import order (to Shop)\n   State: WAITING_APPROVAL\n   Item name: Pen\n   Item type: "
+                + "\n   Item count: 3"
+                + "\n2. Export order (from Warehouse)\n   State: WAITING_FOR_DELIVERY\n   Item name: Rice"
+                + "\n   Item type: Food\n   Item count: 2.5",
+                withoutOrderTimestamps(ResultFormatter.orderList(history)));
+    }
+
+    @Test
+    public void orderList_rejectedOrder_showsReason() throws StockHolmException {
+        OrderHistory history = new OrderHistory();
+        ImportOrder order = new ImportOrder(new Item("Pen", "", 3), shopWith());
+        order.reject("Damaged in shipping");
+        history.add(order);
+        assertEquals("Orders (Page 1 of 1):"
+                + "\n1. Import order (to Shop)\n   State: REJECTED\n   Reason: Damaged in shipping"
+                + "\n   Item name: Pen\n   Item type: \n   Item count: 3",
+                withoutOrderTimestamps(ResultFormatter.orderList(history)));
+    }
+
+    @Test
+    public void orderList_paginated_formatsPageCorrectlyWithIndices() {
+        OrderHistory history = new OrderHistory();
+        Inventory shop = shopWith();
+        for (int i = 1; i <= 3; i++) {
+            history.add(new ImportOrder(new Item("Item" + i, "Type", i), shop));
+        }
+
+        assertEquals("Orders (Page 2 of 3):"
+                + "\n2. Import order (to Shop)\n   State: WAITING_APPROVAL\n   Item name: Item2\n   Item type: Type"
+                + "\n   Item count: 2",
+                withoutOrderTimestamps(ResultFormatter.orderList(history.getOrders(), 2, 3, 1)));
+    }
+
+    /** Shows UTC instants for new orders and Unknown for saved orders without dates. */
+    @Test
+    public void orderList_timestamps_showsKnownAndUnknownDates() {
+        Inventory shop = shopWith();
+        OrderHistory history = new OrderHistory();
+        history.add(new ImportOrder(new Item("Pen", "", 1), shop, OrderState.WAITING_FOR_DELIVERY, null,
+                Instant.parse("2026-10-01T10:00:00Z"), Instant.parse("2026-10-02T11:00:00Z")));
+        Order legacy = new ImportOrder(new Item("Rice", "", 1), shop, OrderState.WAITING_APPROVAL,
+                null, null, null);
+        history.add(legacy);
+
+        String message = ResultFormatter.orderList(history);
+
+        assertTrue(message.contains("Created (UTC): 2026-10-01T10:00:00Z"));
+        assertTrue(message.contains("Status changed (UTC): 2026-10-02T11:00:00Z"));
+        assertTrue(message.contains("Created (UTC): Unknown"));
+        assertTrue(message.contains("Status changed (UTC): Unknown"));
+    }
+
+    @Test
+    public void orderCreated_showsKindAndItemDetails() {
+        Inventory shop = shopWith();
+        assertEquals("Import order created:\nItem name: Pen\nItem type: \nItem count: 3",
+                ResultFormatter.orderCreated(new ImportOrder(new Item("Pen", "", 3), shop)));
+        assertEquals("Export order created:\nItem name: Rice\nItem type: Food\nItem count: 2.5",
+                ResultFormatter.orderCreated(new ExportOrder(new Item("Rice", "Food", 2.5), shop)));
+    }
+}

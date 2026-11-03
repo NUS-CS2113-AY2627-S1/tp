@@ -1,0 +1,105 @@
+package stockholm.inventory;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+import org.junit.jupiter.api.Test;
+
+/**
+ * Tests for {@link Item}.
+ */
+class ItemTest {
+    @Test
+    public void getters_returnConstructorValues() {
+        Item item = new Item("A4 Paper Case", "Stationery", 2);
+        assertEquals("A4 Paper Case", item.getName());
+        assertEquals("Stationery", item.getType());
+        assertEquals(2.0, item.getCount());
+    }
+
+    @Test
+    public void addCount_positiveAmount_increasesCount() {
+        Item item = new Item("Rice", "Food", 2.5);
+        item.addCount(1.5);
+        assertEquals(4.0, item.getCount());
+    }
+
+    @Test
+    public void addCount_decimalAmount_addsWithoutRoundingResidue() {
+        Item item = new Item("Rice", "Food", 0.1);
+        item.addCount(0.2);
+        assertEquals(0.3, item.getCount());
+    }
+
+    @Test
+    public void removeCount_decimalAmount_subtractsWithoutRoundingResidue() {
+        Item item = new Item("Rice", "Food", 0.3);
+        item.reduceCount(0.1);
+        assertEquals(0.2, item.getCount());
+        item.reduceCount(0.2);
+        assertEquals(0.0, item.getCount());
+    }
+
+    @Test
+    public void formatCount_wholeAndDecimalNumbers_dropsTrailingZeros() {
+        assertEquals("2", Item.formatCount(2.0));
+        assertEquals("2.5", Item.formatCount(2.5));
+        assertEquals("100", Item.formatCount(100.0));
+        assertEquals("0.25", Item.formatCount(0.25));
+    }
+
+    @Test
+    public void toString_withType_includesTypeInBrackets() {
+        assertEquals("A4 Paper Case (Stationery) x2", new Item("A4 Paper Case", "Stationery", 2).toString());
+    }
+
+    @Test
+    public void toString_withoutType_omitsBrackets() {
+        assertEquals("Pen x1.5", new Item("Pen", "", 1.5).toString());
+    }
+
+    // ---------- minimum stock ----------
+
+    @Test
+    public void getMinCount_newItem_isZero() {
+        Item pen = new Item("Pen", "", 3);
+        assertEquals(0, pen.getMinCount());
+        assertFalse(pen.isLowOnStock());
+        assertEquals(0, pen.getShortfall());
+    }
+
+    @Test
+    public void isLowOnStock_belowAtAndAboveMinimum_onlyBelowIsLow() {
+        Item pen = new Item("Pen", "", 3);
+        pen.setMinCount(5);
+        assertTrue(pen.isLowOnStock());
+        assertEquals(2, pen.getShortfall());
+
+        pen.setMinCount(3);
+        assertFalse(pen.isLowOnStock(), "an item exactly at its minimum is not low");
+        pen.setMinCount(2.5);
+        assertFalse(pen.isLowOnStock());
+    }
+
+    @Test
+    public void getShortfall_decimalCounts_hasNoRoundingError() {
+        Item rice = new Item("Rice", "", 0.1);
+        rice.setMinCount(0.3);
+        assertEquals(0.2, rice.getShortfall());
+    }
+
+    @Test
+    public void setMinCount_zero_clearsMinimum() {
+        Item pen = new Item("Pen", "", 1);
+        pen.setMinCount(5);
+        pen.setMinCount(0);
+        assertFalse(pen.isLowOnStock());
+    }
+
+    @Test
+    public void setMinCount_negative_failsAssertion() {
+        assertThrows(AssertionError.class, () -> new Item("Pen", "", 1).setMinCount(-1));
+    }
+}

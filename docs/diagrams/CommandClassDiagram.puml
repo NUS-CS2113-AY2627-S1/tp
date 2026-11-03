@@ -1,0 +1,81 @@
+@startuml
+!pragma layout smetana
+hide circle
+skinparam classAttributeIconSize 0
+
+class "<<record>>\nCommand" as Command {
+    + type() : CommandType
+    + args() : Map<ArgKey, String>
+    + Command(type : CommandType, args : Map<ArgKey, String>)
+    + Command(type : CommandType)
+    + getArg(key : ArgKey) : String
+    + hasArg(key : ArgKey) : boolean
+}
+
+enum "<<enumeration>>\nCommandType" as CommandType {
+    INV_ADD
+    ITEM_ADD
+    EXPORT
+    APPROVE
+    --
+    + usage() : String
+    + description() : String
+    + location() : Location
+    + changes() : Changes
+}
+
+enum "<<enumeration>>\nLocation" as Location {
+    ANYWHERE
+    OUTSIDE
+    INSIDE
+    --
+    + helpHeading() : String
+}
+
+enum "<<enumeration>>\nChanges" as Changes {
+    NONE
+    INVENTORIES
+    ORDERS
+    INVENTORIES_AND_ORDERS
+    --
+    + includesInventories() : boolean
+    + includesOrders() : boolean
+}
+
+enum "<<enumeration>>\nArgKey" as ArgKey {
+    INV_NAME
+    ITEM_NAME
+    ITEM_INDEX
+}
+
+class "<<record>>\nResult" as Result {
+    + message() : String
+    + isExit() : boolean
+}
+
+class Parser {
+    + {static} parseCommand(rawInput : String) : Command
+}
+
+class Processor {
+    + {static} process(command : Command, state : AppState) : Result
+}
+
+Command -down-> "1   " CommandType
+CommandType -down-> "1  " Location
+CommandType -down-> "1  " Changes
+Command -right-> "*\n" ArgKey : keys of args
+Parser ..> Command : creates
+Processor ..> Command : reads
+Processor ..> Result : creates
+
+note right of CommandType
+    Representative values shown;
+    other command types omitted.
+end note
+
+note right of ArgKey
+    Representative keys shown;
+    other keys omitted.
+end note
+@enduml

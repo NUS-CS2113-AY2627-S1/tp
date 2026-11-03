@@ -2,37 +2,1399 @@
 
 ## Acknowledgements
 
-{list here sources of all reused/adapted ideas, code, documentation, and third-party libraries -- include links to the original source as well}
+* Project structure and build setup adapted from the [SE-EDU](https://se-education.org) project template.
+* [Gson](https://github.com/google/gson): JSON library, used by `InventoryStorage` to save inventories.
+* [JUnit 5](https://junit.org/junit5/): unit testing.
+* [Checkstyle](https://checkstyle.org/): code style checks.
+* [Gradle Shadow plugin](https://gradleup.com/shadow/): packages the app into a single runnable `stockholm.jar`.
 
 ## Design & implementation
 
-{Describe the design and implementation of the product. Use UML diagrams and short code snippets where applicable.}
+### Architecture
+
+This overview shows the main parts of the app. An arrow means the source part uses the target part; it does not
+represent a UML class association. Less important classes and dependencies are omitted here.
+
+![Architecture diagram](images/ArchitectureDiagram.png)
+
+StockHolm is a command-line app built around one loop in `StockHolm.main`:
+
+1. **Read**: `Ui.readInputFancy(inventoryName)` shows the prompt and returns the line the user typed.
+2. **Parse**: `Parser.parseCommand(line)` turns the text into a `Command`.
+3. **Process**: `Processor.process(command, state)` runs the command against the `AppState` and returns a `Result`.
+4. **Print**: `Printer.printResult(result)` shows the result. The loop stops once `result.isExit()` is `true`.
+5. **Save**: `Storage.saveAfterCommand(command, state)` saves the inventories and/or orders the command changed.
+   It runs only if processing succeeded, and after printing, so a save failure never hides the command's output.
+
+Before the loop starts, `StockHolm.main` loads saved inventories and orders through `Storage.load(state)`. The load
+result includes warnings about skipped entries and a summary of what was loaded, displayed through `Printer`.
+A save file that cannot be read stops startup, to avoid overwriting data that was not loaded.
+
+Each step has one job, so the classes stay small and easy to test:
+
+| Component | Job | Never does |
+|---|---|---|
+| `Parser` | Checks **syntax** (unknown command, missing argument, malformed number) | Look at inventory data |
+| `Processor` | Enforces **business rules** (e.g. no duplicate inventory names) | Read input, parse text, print, or persist data |
+| `Storage` | Restores saved data and saves successful changes through `InventoryStorage` and `OrderStorage` | Process commands or print |
+| `Printer` | Decides **how** output is shown on screen: indentation, bars and the prompt | Decide what happened |
+| `AppState` | **Holds the data**: all inventories, the current one, and the order history | Contain business rules |
+| `StockHolm` | Creates the `AppState` and runs the loop | — |
+
+`Parser` and `Processor` hold no state of their own; all their methods are `static`.
+
+Any user-facing error is thrown as a `StockHolmException`, from the Parser, Processor, Storage, or the model
+(e.g. `Order.approve()` on an order in the wrong state).
+The main loop catches it in a single place and prints its message, so you never need to print errors yourself.
+
+### Coupling between packages
+
+The diagram below shows the main package dependencies. Each box is a package, and each arrow means that some class
+in the source package uses a class in the target package. Less important dependencies are omitted, including arrows
+into `exceptions`, because almost every package throws `StockHolmException`.
+
+![Coupling diagram](images/CouplingDiagram.png)
+
+* **Most dependencies point downwards.** `stockholm` (the main loop) sits on top and uses every layer. `command`,
+  `state`, `order` and `inventory` are at the bottom and never use the packages above them, so the data model can
+  be tested without the parser, processor, UI or storage. The one two-way link is between `processor` and
+  `storage`: `ItemHandlers` uses `storage.ItemCsvReader` to read `item import` files.
+* **`parser` only depends on `command`** (plus `exceptions`). It never sees inventory data, which is why parsing
+  needs no `AppState`. `processor` and `storage` are the only packages that change orders, items or inventories:
+  `state` only holds the inventories and the order history, and `stockholm` only reads the current inventory's name
+  for the prompt.
+* **`order` depends on `inventory`, but not the other way round.** An `Order` holds an `Item` and reads its
+  inventory's name when it is created, but an `Inventory` knows nothing about orders: all orders live in one
+  `OrderHistory` held by `AppState`. So `inventory` can be used and tested on its own.
+* **`storage` and `ui` use `processor.Result`**, and `storage` also uses `command.Changes` (from
+  `CommandType.changes()`) to decide what to save after each command.
+* The most-used classes are `StockHolmException` (used by 17 classes), `Command` (15), and `Inventory` and `Item`
+  (14 each). The classes that use the most others are `OrderHandlers` (15), `Processor` (13), `ItemHandlers` and
+  `InventoryHandlers` (11 each), and `StockHolm` and `StockHandlers` (10 each), so they are the ones most likely to
+  change when another class changes. Most of `Processor`'s are its own handler classes: outside the `processor`
+  package it only uses `Command`, `CommandType`, `Location`, `AppState` and `StockHolmException`. The business logic
+  that touches `order` and `inventory` lives in the handler classes.
+
+### Flow of one command
+
+The sequence diagram below shows `inv add Shop`, both when it succeeds and when the inventory already exists.
+
+![Sequence diagram for inv add Shop](images/InvAddSequence.png)
+
+### Command component
+
+Package `stockholm.command`: `Command`, `CommandType`, `ArgKey`, `Location`, `Changes`.
+The diagram shows representative `CommandType` and `ArgKey` values to keep the relationships readable.
+
+![Command class diagram](images/CommandClassDiagram.png)
+
+A `Command` is an **op code** plus **named arguments**:
+
+* `CommandType` is the op code: which action to run (e.g. `ITEM_ADD`). Each constant also records:
+    * `usage()`: its syntax, e.g. `item add NAME [--type=TYPE] [--count=COUNT]`, shown in Parser error messages.
+    * `description()`: what it does, shown in `help`.
+    * `location()`: where it may be used, a `Location` (`ANYWHERE`, `OUTSIDE` or `INSIDE` an inventory), checked by
+      the Processor.
+    * `changes()`: which saved data it changes, a `Changes` (`NONE`, `INVENTORIES`, `ORDERS` or
+      `INVENTORIES_AND_ORDERS`), used by Storage to decide which files to save.
+
+  `help` is generated from these fields: commands are grouped by location, in the order the constants are declared.
+  `NO_OP` has no usage, so it is not listed.
+* `ArgKey` names an argument (e.g. `ITEM_NAME`). Using an enum instead of strings means a mistyped key is a compile
+  error.
+* `args` is a `Map<ArgKey, String>` holding the arguments.
+
+```java
+// Command with arguments
+Command add = new Command(CommandType.INV_ADD, Map.of(ArgKey.INV_NAME, "Shop"));
+// Command without arguments
+Command quit = new Command(CommandType.QUIT);
+
+add.getArg(ArgKey.INV_NAME);   // "Shop"
+add.hasArg(ArgKey.INV_NAME);   // true
+quit.hasArg(ArgKey.INV_NAME);  // false
+quit.getArg(ArgKey.INV_NAME);  // throws IllegalStateException
+```
+
+* Use `getArg` for **required** arguments. The Parser guarantees they are present, so a missing one is a bug, and
+  `getArg` throws `IllegalStateException` to make it obvious.
+* Use `hasArg` to check **optional** arguments before reading them, e.g. `--type` and `--count` of `item add`.
+* `Command` is immutable: it is a `record`, and its map is copied on construction, so it cannot change afterwards.
+
+Rules for arguments:
+
+* **Values are strings.** The Parser checks their syntax (e.g. that a count is a positive number), and the Processor
+  converts them when it uses them, e.g. `Double.parseDouble(command.getArg(ArgKey.ITEM_COUNT))`.
+* **Commands carry names or positions, not objects.** To refer to an existing inventory or item, put its name (or its
+  number in a list) in the command; the Processor looks up the object (see `AppState.findInventory` and
+  `Inventory.findItem`). The Parser has no access to the data, so it cannot supply the real object.
+
+### Parser component
+
+`stockholm.parser.Parser` has one public method, `parseCommand(String rawInput)`. It splits the input into the
+command word and the rest (`splitFirstWord`, which splits on any whitespace), then `switch`es on the command word and
+hands the rest to the parser for that area. Only `Parser` is public; the other classes are package-private.
+
+| Class | Parses |
+|-------|--------|
+| `Parser` | the command word, aliases, `help`, `quit`, `back` and blank input |
+| `InventoryCommandParser` | `inv add\|rename\|delete\|list` (`parseInvCommand`) and `enter` (`parseEnter`) |
+| `ItemCommandParser` | `item add\|list\|delete\|edit\|import\|min` (`parseItemCommand`), `stock` (`parseStock`), `find` (`parseFind`) and `restock` (`parseRestock`) |
+| `OrderCommandParser` | `order list [PAGE] [--status=STATUS] [--inv=NAME] [--type=TYPE] [--size=SIZE]` (`parseOrderCommand`), `import`, `export`, `transfer`, `approve`, `reject` (`parseReject`), `cancel` and `deliver` |
+| `ArgumentParser` | nothing on its own: the shared helpers below for names, options and numbers |
+
+* Commands with the same syntax share a method: `ItemCommandParser.parseNameTypeCount` for `item add` and `import`
+  (`NAME [--type=TYPE] [--count=COUNT]`), and `OrderCommandParser.parseOrderIndex` for `approve` and `deliver`
+  (`INDEX`).
+* The command parsers import the `ArgumentParser` helpers statically, so they call e.g. `requireArg(...)` directly.
+* Usage hints in error messages come from `CommandType.usage()`, so each command's syntax is written in one place.
+* Blank input becomes `NO_OP`, so pressing Enter does nothing.
+* **Aliases** live in the `ALIASES` map (e.g. `bye`, `exit`, `close` → `quit`). Add new aliases there and nowhere
+  else.
+* `ArgumentParser.requireArg(value, label, usage)` throws a `StockHolmException` such as
+  `Missing item name. Usage: item add NAME [--type=TYPE] [--count=COUNT]` if a required argument is empty.
+  Use it for every required argument.
+* Inventory names have surrounding double quotes and leading/trailing whitespace removed, while internal spaces
+  are preserved. `InventoryCommandParser.parseName` applies this to `inv add`, `inv delete`, `enter` and the new
+  and old names in `inv rename`. It rejects quotes without a matching opening or closing quote. Stock, restock,
+  transfer endpoints and order inventory filters already follow this rule through the shared argument helpers.
+
+**Options.** `item add` takes a name followed by `--name=value` options, read by `ArgumentParser`:
+
+```
+item add "A4 Paper Case" --type="Stationery" --count=2
+```
+
+* A name in double quotes may contain spaces. An unquoted name runs until the first `--`.
+* `splitNameAndOptions(arguments, label, usage)` separates a leading (optionally quoted) name from the options after
+  it. It is shared by `item add`, `import`, `stock`, `find` and `restock`; reuse it for any command of the form
+  `NAME [--option=value]...`.
+* `parseOptions(text, usage, allowed)` reads any number of options into a `Map<String, String>`, in the order given.
+  Values may be quoted to contain spaces (`--type="Office Supplies"`). It rejects text that is not an option, options
+  given twice, and option names not in the `allowed` set. Reuse `parseOptions` for future commands with options.
+* Numbers are checked with regular expressions before they are put into the command: `DECIMAL` for counts (positive,
+  e.g. `2` or `2.5`; no sign or exponent) and `WHOLE_NUMBER` for item and order numbers.
+  `requireIndex(value, label, usage)` wraps the `WHOLE_NUMBER` check and also rejects 0 and numbers too large for an
+  `int`; it is used for every item or order number.
+  `requirePositiveDecimal(value, label)` wraps the `DECIMAL` check and also rejects numbers too large to be a
+  finite `double`; it is used for every `--count` and for `--below`.
+  `export` also takes `--count`, but parses its own leading item number instead of using `splitNameAndOptions`.
+
+### Processor component
+
+`stockholm.processor.Processor.process(Command command, AppState state)` only dispatches. It first checks that the
+command is used in the right place (`StateGuards.checkLocation(command.type().location(), state)`), then calls the
+`CommandHandler` registered for `command.type()`. Only `Processor` and `Result` are public; the other classes are
+package-private.
+
+| Class | Handles |
+|-------|---------|
+| `Processor` | dispatch, `help`, `quit` and blank input (small lambdas in `createHandlers`) |
+| `InventoryHandlers` | `inv add\|rename\|delete\|list`, `enter`, `back` |
+| `ItemHandlers` | `item add\|list\|delete\|edit\|import\|min` (`item import` reads the file with `ItemCsvReader`) |
+| `OrderHandlers` | `import`, `export`, `transfer`, `order list`, `approve`, `reject`, `cancel`, `deliver` |
+| `StockHandlers` | `stock` and `restock` |
+| `FindHandlers` | `find` |
+| `StateGuards` | the location check and the inventory, item and order lookups shared by the handlers (below) |
+| `ItemArgs` | the `--type` and `--count` defaults shared by `item add` and `import` (`typeOrEmpty`, `countOrDefault`) |
+| `ResultFormatter` | nothing on its own: builds the multi-line messages (numbered lists, stock levels, new orders) |
+| `IndexedOrder` | nothing on its own: a record pairing an order with its `order list` number, so filtered pages keep it |
+
+Every handler has the same signature, `Result handle(Command command, AppState state)` (the `CommandHandler`
+interface), so `createHandlers` registers each one with a method reference:
+
+```java
+handlers.put(CommandType.ITEM_ADD, ItemHandlers::add);
+```
+
+* A handler either returns a `Result`, or throws a `StockHolmException` if a business rule is broken
+  (e.g. `"Inventory already exists: Shop"`).
+* Handlers decide **what** to show; `ResultFormatter` decides how it is laid out. For example, `StockHandlers` picks
+  the low-stock items and adds up the total, then `ResultFormatter.lowStock` or `stockLevels` turns them into text.
+  Use `ResultFormatter` for any new list, so every list is numbered and worded the same way. It only builds strings:
+  the Printer still indents and prints them.
+* `Result(String message, boolean isExit)` is a `record`. Use an empty message to print nothing,
+  and `isExit = true` only for `QUIT`.
+* A command type with no registered handler throws `"Command not supported yet: ..."`.
+  `ProcessorTest.process_everyCommandType_hasHandler` fails if any `CommandType` is left unregistered.
+* `process(Command, AppState)` only applies business rules and changes in memory. Persistence is handled separately
+  by Storage after processing returns successfully, so business-rule tests need no file I/O.
+
+**Where commands are allowed.** The user is either outside all inventories, or inside one after `enter`:
+
+![Location state diagram](images/LocationStateDiagram.png)
+
+Each `CommandType` declares its `Location`, and `StateGuards.checkLocation` enforces it before any handler runs:
+
+* `OUTSIDE`: throws `You are inside Shop. Use back to leave it first.` when inside an inventory.
+* `INSIDE`: throws `You are not inside an inventory. Use enter NAME first.` when outside all inventories.
+  Handlers for `INSIDE` commands can then use `state.getCurrentInventory()` directly.
+* `ANYWHERE`: no check.
+
+Handlers depend only on these shared classes, never on each other.
+
+`StateGuards` also finds the inventory, item or order a command acts on:
+
+* `requireNamedOrCurrentInventory(command, state, usage)` is for commands that work **anywhere** and take an optional
+  inventory name (e.g. `stock`). It returns the inventory named by `ArgKey.INV_NAME` if the command has one, otherwise
+  the current inventory, and throws `Missing inventory name. Usage: <usage>, or enter an inventory first.` if there
+  is neither. It never changes the current inventory.
+
+To look up an inventory by name, use `requireInventory(name, state)`, which throws `No such inventory: NAME`,
+or `AppState.findInventory(name)`, which returns `null` instead.
+
+To look up an item or order by the one-based number shown in `item list` or `order list`, use
+`requireItemAtIndex(index, inventory)` or `requireOrderAtIndex(index, orderHistory)`. They throw
+`No item number N. Shop has M item(s); use item list to see them.` or
+`No order number N. There are M order(s); use order list to see them.` if the number is too large. The Parser has
+already checked that it is a positive whole number.
+
+**Item rules** (in `ItemHandlers`):
+
+* `item add` without `--count` adds 1; without `--type`, the type is empty and not shown.
+* Adding an item whose name already exists **merges** it: the counts are added together. If a `--type` is given that
+  differs from the existing item's type, the command is rejected so a type is never silently lost.
+* `item delete N` uses the **one-based** numbers shown by `item list`; the handler converts to a zero-based index for
+  `Inventory.removeItem`.
+* `item import CSV_PATH` asks `stockholm.storage.ItemCsvReader` to validate the UTF-8 header
+  (`name,type,count,minCount`) and every CSV row. `ItemHandlers.importCsv` then applies the rows to a copy of the
+  inventory first, using `addOrMerge` to catch type conflicts and count overflow. Only after the preview succeeds are
+  the rows applied to the real inventory, so a bad row changes nothing. A non-empty `minCount` sets the item's
+  minimum. `Storage` then saves the inventories as JSON.
+* `item edit N` replaces an item's name or type at the same list position (`Item.withDetails` and
+  `Inventory.replaceItem`). It rejects a duplicate name, keeps the item's count and minimum, and leaves existing
+  order snapshots untouched. `InventoryStorage` saves the edited details.
+* Names are compared case-sensitively, so `Pen` and `pen` are different items (and inventories).
+
+**Stock levels** (in `StockHandlers.show` and `showLowStock`):
+
+* `stock` works **anywhere**: it gets its inventory from `requireNamedOrCurrentInventory`, so stock can be checked
+  without entering an inventory.
+* Items keep the numbers shown by `item list`, so a number seen in `stock` can be passed straight to `item delete`.
+* The total number of units is summed with `BigDecimal`, so decimal counts add up exactly (`0.1 + 0.2` gives `0.3`).
+* With `--below=COUNT`, only items whose count is **strictly** below `COUNT` are listed (an item with exactly `COUNT`
+  is not low), and the totals line is left out.
+
+### State component
+
+`stockholm.state.AppState` holds everything the app remembers between commands:
+
+* `getInventories()`: the list of all inventories (modifiable).
+* `getOrderHistory()`: the `OrderHistory` holding every order of every inventory, including orders of deleted
+  inventories.
+* `findInventory(String)`: the inventory with that name (case-sensitive), or `null`. Used by both the Processor and
+  Storage.
+* `getCurrentInventory()`: the inventory the user has entered, or `null`. `isInsideInventory()` checks this.
+* `enterInventory(Inventory)` and `leaveInventory()` change the current inventory. Entering while already inside
+  another inventory switches directly.
+
+The Processor changes state when executing commands. At startup, `Storage.load` adds the saved inventories, then
+adds the restored orders to the order history. It never creates an inventory just because an order names it.
+`StockHolm` reads `getCurrentInventory()` to show its name in the prompt.
+
+### Inventory component
+
+Package `stockholm.inventory`:
+
+* `Inventory(String name)` is a named list of items, kept in the order they were added.
+    * `getName()` is also how inventories are looked up; `rename(String)` changes it for `inv rename`.
+    * `addItem(Item)`, `findItem(String name)` (returns `null` if missing), `removeItem(int index)` and
+      `replaceItem(int index, Item)` (both zero-based).
+    * `addOrMerge(Item)` adds the item, or adds its count to the existing item with the same name, and returns the
+      item that now holds the stock. `item add`, `item import`, delivering an order and refunding stock all use it.
+    * `checkCanMerge(Item)` returns `false` if an item with the same name has a different type (an empty type never
+      conflicts). `requireCanAddOrMerge(Item)` checks this and rejects a total count that would overflow before
+      changing stock. `addOrMerge` calls it; delivering, rejecting and canceling orders also call it before the
+      order's state changes.
+    * `getItems()` returns a **read-only** view; change items only through the methods above.
+* `Item(String name, String type, double count)`: the count is a `double` so items measured in e.g. kilograms work.
+    * `addCount(double)` increases the count when an item is merged, using decimal addition so `0.1 + 0.2` gives `0.3`.
+    * `reduceCount(double)` reduces validated stock using decimal subtraction to avoid rounding residue.
+    * `getMinCount()` and `setMinCount(double)` hold the minimum stock level (see `item min` below), and
+      `withDetails(name, type)` returns a copy with a new name and type, used by `item edit`.
+    * `toString()` gives the display form, e.g. `A4 Paper Case (Stationery) x2`, leaving out `( )` if the type is empty.
+    * `Item.formatCount(double)` shows counts without a trailing `.0` (`2.0` → `2`, `2.5` → `2.5`).
+
+### Order component
+
+Package `stockholm.order`:
+
+![Order class diagram](images/OrderClassDiagram.png)
+
+**Design concepts.** The diagram shows the implemented order types and their relationships to inventory data.
+Only the lifecycle operations, the abstract methods and the main data relationships are shown, with `OrderState`
+represented as an attribute. Constructors, accessors, source/destination fields, members of the inventory classes,
+constructor-only dependencies and the timestamp fields and unused notes field are omitted.
+
+* **Inheritance:** `ImportOrder`, `ExportOrder` and `TransferOrder` extend the abstract `Order` class and inherit its
+  item, source/destination accessors, and approval/delivery methods. `Order` is abstract, so it cannot be created
+  directly: every order is an `ImportOrder`, `ExportOrder` or `TransferOrder`. Its constructors are `protected`
+  because only those subclasses call them. The subclass constructors set the destination name, the source name, or
+  both. `OrderHistory` stores all subclasses in one list
+  of `Order` references. The subclasses do not override approval or delivery. They only implement the two abstract
+  methods, `getKindLabel()` (`"Import order"` / `"Export order"` /
+  `"Transfer order"`), which `order list` and the order-created messages display, and `getInventoryName()`, which
+  returns `dst` for an import and `src` for an export or transfer: the inventory that owns the order in the CSV file.
+  The Processor uses `instanceof` when stock changes depend on the order type.
+* **Encapsulation and state transitions:** `Order` keeps its state private and exposes `approve()`, `reject(reason)`,
+  `cancel()` and `deliver()` to enforce `WAITING_APPROVAL` -> `WAITING_FOR_DELIVERY` -> `DELIVERED`,
+  `WAITING_APPROVAL` -> `REJECTED`, and `WAITING_FOR_DELIVERY` -> `CANCELED`, throwing
+  `StockHolmException` for an invalid transition. This uses an enum and guarded methods, rather than the State design
+  pattern with separate state classes.
+  It also records creation and last status-change instants in UTC. Successful transitions update only the latter;
+  failed transitions leave both timestamps unchanged.
+* **Associations and snapshots:** each order references one `Item` and one `OrderState`; the `OrderHistory` holds
+  zero or more orders of all inventories in creation order. The Processor creates separate item snapshots so stock
+  changes do not change an order's recorded count. The order's item reference is final, but `Item` itself is
+  mutable. Subclass constructors read the inventory's name into `src` or `dst`; orders do not retain an `Inventory`
+  reference, so an order outlives the inventory it names. When an order must change stock, the Processor looks the
+  inventory up by that name.
+* **Separation of responsibilities:** `Order` validates its lifecycle transitions, while the Processor coordinates
+  stock changes and Storage handles persistence. Restoring an order supplies its saved state directly, so loading
+  does not replay transitions or apply stock changes again.
+
+The object diagram below shows the snapshots after `inv add Shop`, `enter Shop`, `item add Pen --count=5`,
+`export 1 --count=2` and `import Rice --count=4`. Timestamps are omitted.
+
+![Object diagram of orders and their item snapshots](images/OrderSnapshotObjectDiagram.png)
+
+* The export order holds its own `Pen` item with the reserved count of 2, while `shop`'s `pen` now has 3 left.
+  Approving or delivering the order does not touch `pen`, and a later change to `pen` does not change the order.
+* The import order holds a `Rice` item that is in no inventory yet: stock only changes on delivery.
+* Neither order links to `shop`; they record the name `"Shop"` in `src` or `dst` instead.
+
+**Implementation details:**
+
+- `Order` holds an `Item` and its `OrderState`, accessible through `getItem()` and `getState()`. New orders start in
+  `WAITING_APPROVAL`. `isOpen()` is `true` in `WAITING_APPROVAL` and `WAITING_FOR_DELIVERY`.
+- `ImportOrder`, `ExportOrder`, and `TransferOrder` also accept an `OrderState` when restoring saved orders, passing
+  it to `Order`'s `protected` restoring constructors.
+- `Order.approve()` changes `WAITING_APPROVAL` to `WAITING_FOR_DELIVERY` and rejects any other starting state.
+- `Order.reject(reason)` changes `WAITING_APPROVAL` to `REJECTED` with a non-blank reason (kept for `getReason()`)
+  and rejects any other starting state.
+- `Order.cancel()` changes `WAITING_FOR_DELIVERY` to `CANCELED` and rejects any other starting state. An order
+  awaiting approval is rejected rather than canceled.
+- `Order.deliver()` changes `WAITING_FOR_DELIVERY` to `DELIVERED` and rejects any other starting state.
+- Each transition has a matching `checkCanReject(reason)`, `checkCanCancel()` or `checkCanDeliver()` that throws the
+  same exception without changing anything, so the Processor can validate a transition before touching stock.
+- `OrderHistory` holds every order in creation order. `add(Order)` appends one; `getOrders()` returns a
+  **read-only** view. Its one-based positions are the numbers shown by `order list`.
+  `renameInventoryReferences(oldName, newName)` updates every `src` and `dst` for `inv rename`, and
+  `cancelOpenOrdersOf(name)` is used by `inv delete` (below).
+- `ImportOrder(Item item, Inventory currInventory)` extends `Order` and sets `dst` to the current inventory's name
+  during construction. The Processor adds it to the order history.
+- `import NAME [--type=TYPE] [--count=COUNT]` and `item add` are both parsed by `parseNameTypeCount`, which uses each
+  command's own usage hint.
+- `import` is an `INSIDE` command. The Processor creates a separate item with the given type and count (an empty
+  type and a count of 1 if they are left out), and stores a new `ImportOrder`.
+- Existing items and stock counts stay unchanged. Repeated imports create separate orders.
+- `export INDEX [--count=COUNT]` uses the one-based item number displayed by `item list`. The Parser checks the item
+  number and the optional positive `--count` (via `parseOptions`); the Processor resolves the item in the
+  current inventory.
+- `ExportOrder(Item item, Inventory currInventory)` extends `Order` and sets `src` to the current inventory's name
+  during construction. The Processor rejects counts above available stock, deducts the exported count
+  immediately, and stores a separate item snapshot in a `WAITING_APPROVAL` export order. An omitted count exports
+  all current stock. Items with no remaining stock are removed, so subsequent item numbers are renumbered.
+- Rejected exports leave stock and orders unchanged. Repeated exports use the remaining stock, and changes to
+  inventory items do not alter previous orders' recorded counts.
+
+The sequence diagram below shows how `OrderHandlers.reserveStock` checks the stock and creates the order for
+`export 1 --count=7`, on a pen with 10 in stock and a minimum of 5. The new order copies the item, minimum included,
+and reads only the inventory's name. The rest of the export, reducing the stock and raising any alert, is shown in
+[Low-stock thresholds and alerts](#low-stock-thresholds-and-alerts-item-min-restock), which refers back to this
+diagram with a `ref` frame.
+
+![Sequence diagram for checking stock and creating an export order](images/ExportReserveSequence.png)
+- `transfer INDEX [--count=COUNT] [--from=NAME] [--to=NAME]` works anywhere. Each omitted endpoint defaults to the
+  current inventory, so both names are required outside an inventory, and at least one must name another inventory
+  inside one. Source and destination must exist and be distinct. `INDEX` is the source inventory's one-based
+  `stock` / `item list` number, including the original numbers retained by filtered stock output.
+- `OrderCommandParser.parseTransfer` shares index, count and option validation with exports through `parseStockOrder`.
+  Endpoint names use `ArgKey.INV_FROM` and `INV_TO`; quote names containing spaces.
+- `OrderHandlers.createTransfer` resolves the endpoints without changing the current inventory and shares
+  `reserveStock` with exports. An omitted count reserves all available stock. A separate item snapshot, including
+  the source's minimum for refunds, is recorded in a `TransferOrder` in `WAITING_APPROVAL`. Destination type conflicts
+  are checked before stock is reduced; source low-stock alerts and removal of exhausted items work as for exports.
+- Transfers use the same approval workflow as other orders. Approval leaves stock unchanged; delivery adds or
+  merges a copy into the destination; rejection or cancellation refunds the source. Destination compatibility is
+  checked again on delivery because its items may have changed. A minimum is restored only on a source refund;
+  delivery keeps an existing destination item's minimum or starts a new item without one.
+- `order list` includes transfers in creation order, displaying both endpoints, e.g.
+  `Transfer order (from Warehouse to Shop)`. `TransferOrder.getInventoryName()` returns the source for CSV ownership;
+  stock transitions explicitly choose `getSrc()` for refunds and `getDst()` for delivery.
+- The normal `Result` and Printer flow displays the item's name, type, and formatted count.
+- `order list [PAGE] [--status=STATUS] [--inv=NAME] [--type=TYPE] [--size=SIZE]` is parsed by `parseOrderCommand`
+  and handled by `OrderHandlers.list`; it is an `ANYWHERE` command. It lists the orders in creation order, with
+  optional filters and pagination (10 orders per page by default). The Parser accepts `--state`, `--inventory`,
+  `--kind` and `--limit` as aliases, upper-cases the status (accepting `CANCELLED`) and checks it and the order type
+  (`import`, `export` or `transfer`). `--inv` matches either endpoint of an order.
+  Matching orders are wrapped in `IndexedOrder`s so each keeps its `order list` number, and
+  `ResultFormatter.orderListIndexed` prints the requested page under `Orders (Page P of N):`, showing each order's
+  kind and inventories (e.g. `Import order (to Shop)`, `Export order (from Warehouse)`), state, reason if rejected,
+  item name, type, and formatted count. It does not change orders or stock. An empty history reports
+  `No orders yet.`, no matches report `No matching orders found.`, and a page past the end is rejected with
+  `No page number P. There are N page(s); use order list to see the first page.`
+- `approve`, `reject`, `cancel` and `deliver` are `ANYWHERE` commands, and `INDEX` is the one-based number from
+  `order list`, shared by all inventories.
+- `approve INDEX`: the Parser checks the
+  number's syntax; the Processor checks that it exists and calls `Order.approve()`. Approval changes neither item stock
+  nor the order's recorded item.
+- `reject INDEX REASON` takes a non-blank reason, optionally in quotes or as `--reason=REASON`. For an export or
+  transfer order, rejection refunds the deducted stock into its source inventory. For an import order, stock is
+  unchanged.
+- `cancel INDEX`: for an export or transfer order, cancellation refunds the deducted stock into its source
+  inventory. For an import order, stock is unchanged.
+- `deliver INDEX`: for an import or transfer order, delivery adds or merges the ordered item into its destination
+  inventory's stock. For an export order, stock was already reduced when the order was created, so stock is
+  unchanged.
+- `reject`, `cancel` and `deliver` share `OrderHandlers.changeState`, which runs the order's `checkCanX` first, then,
+  only if the change adds stock, looks up the receiving endpoint's inventory and checks `requireCanAddOrMerge`,
+  and only then changes the state and merges a copy of the item. So a failed command changes nothing, and a state
+  problem is reported ahead of `Inventory NAME no longer exists.` or an invalid stock merge. A change that adds no
+  stock (e.g. canceling an import) works even if the order's inventory is missing.
+- **Deleting an inventory cancels its open orders.** `InventoryHandlers.delete` calls
+  `OrderHistory.cancelOpenOrdersOf(name)`, which moves every `WAITING_APPROVAL` or `WAITING_FOR_DELIVERY` order of
+  that inventory to `CANCELED` through the package-private `Order.cancelForDeletedInventory()`. Stock reserved from
+  the deleted inventory is discarded. Closed orders keep their state as history. This matters because orders find their
+  inventory by name: without it, an inventory created later with the same name would receive an old import's
+  goods or an old export's refund. After the delete, every order of that name is closed, so it can never touch the
+  new inventory's stock.
+  Transfer orders are canceled if either endpoint is deleted. Deleting a destination refunds its open transfers
+  to existing sources first; deleting a source discards its reserved stock along with the inventory.
+  `InventoryHandlers.refundIncomingTransfers` simulates cumulative refunds before applying any, so type conflicts
+  and count overflow leave inventories, stock and orders unchanged. Missing sources are not recreated. Refunds
+  preserve the source's minimum when an item is restored, and both the refunded inventories and canceled orders
+  are saved.
+- Orders can still name a missing inventory if they were loaded while the inventory file was corrupted. Such an
+  order stays open, so it can be inspected and still recovers if the inventory is restored or recreated. Any change
+  that would add stock to the missing inventory is refused with `Inventory NAME no longer exists.`
+
+**Order approval sequence.** The diagram below focuses on the core interactions for a successful `approve 1`.
+It assumes order 1 exists in `WAITING_APPROVAL`; the user may be inside any inventory or none. Validation and
+invalid-state rejection are summarised in notes.
+
+![Sequence diagram for approving an order](images/OrderApprovalSequence.png)
+
+1. `APPROVE` is an `ANYWHERE` command, so `Processor.process` dispatches straight to `OrderHandlers.approve`.
+   The handler reads `ORDER_INDEX` and calls `StateGuards.requireOrderAtIndex(index, state.getOrderHistory())`, which
+   obtains every order with `getOrders()`, checks the index against the list size, and selects
+   `orders.get(index - 1)`. An out-of-range index raises `StockHolmException` before `Order.approve()` is called.
+2. `Order.approve()` checks its own state. Only `WAITING_APPROVAL` can become `WAITING_FOR_DELIVERY`.
+   Any other state raises `StockHolmException` without changing the order. The same inherited method handles
+   import and export orders; approval changes neither stock nor the order's item snapshot.
+3. On success, the handler returns `Result("Approved order 1.", false)`, which `Processor` passes on.
+   Display and persistence follow the normal command flow outside this diagram. Rejected approvals leave the order
+   unchanged and skip saving.
+
+### UI component
+
+Package `stockholm.ui`:
+
+* `InputReader.readLine()` reads one raw line from standard input. It returns `"quit"` when input ends
+  (e.g. Ctrl+D), so the app always exits cleanly.
+* `Printer` writes all command output, errors and prompts to the screen (only the welcome and goodbye lines are
+  printed by `Ui` directly):
+    * `printResult(Result)` prints the message, or nothing if it is empty.
+    * `printIndent(String)` prints indented text; every line of a multi-line message is indented.
+    * `printBar()` prints a horizontal line as wide as the terminal (`$COLUMNS`), or 100 characters if that is unknown.
+    * `printPrompt()` prints `❯ `; `printPrompt(String)` prints the current inventory first, e.g. `Shop ❯ `.
+* `Ui` combines `Printer` and `InputReader` calls for common screens:
+  `readInputFancy(String inventoryName)` (the prompt between two bars; pass `null` when outside an inventory),
+  `printStarter()`, and `printEnding()`.
+
+### Storage component
+
+`stockholm.storage.Storage` owns an `InventoryStorage` and an `OrderStorage` and coordinates application persistence.
+
+* The default constructor uses both default paths. `Storage(OrderStorage, InventoryStorage)` supports isolated
+  persistence tests. There is deliberately no constructor taking only one, so tests cannot write to the real `data`.
+* `load(AppState)` loads inventories first, then adds the saved orders to the order history in file order. Orders
+  whose inventory no longer exists are kept. It returns warnings followed by `Loaded X inventory(ies) and Y order(s).`.
+  * A corrupted inventory file (`InventoryStorage.CorruptFileException`) is backed up; startup continues with no
+    inventories, and orders still load.
+  * If any inventory, item, or order row was skipped, or an inventory was renamed, that file is also backed up,
+    since the next save drops or changes those entries.
+  * Inventories renamed on load (see `InventoryStorage` below) are passed to `OrderStorage.load(Map)`, so their
+    orders follow them. If any name changed in either file (`namesChanged` in each `LoadResult`), both files are
+    then saved straight away, so they hold the new names. Otherwise a command that saves only inventories (e.g.
+    `inv add`) would leave orders naming the old name, which the next start would resolve to the wrong inventory.
+    A failed save is reported as a message, and startup continues.
+  * Backups are made by `BackupFile` (see below). A failed backup is reported as a message, not an error.
+  * Any other read failure, of either file, raises a `StockHolmException`; startup stops before the command loop.
+* `saveAfterCommand(Command, AppState)` saves after a successful command, according to `command.type().changes()`:
+  * inventories when `includesInventories()`: after `INV_ADD`, `INV_RENAME`, `INV_DELETE`, `ITEM_ADD`,
+    `ITEM_DELETE`, `ITEM_IMPORT`, `ITEM_EDIT`, `ITEM_MIN`, `EXPORT`, `TRANSFER`, `REJECT`, `CANCEL`, and `DELIVER`;
+  * orders when `includesOrders()`: after `INV_RENAME`, `INV_DELETE`, `IMPORT`, `EXPORT`, `TRANSFER`, `APPROVE`,
+    `REJECT`, `CANCEL`, and `DELIVER`. Renaming updates order inventory names; deleting cancels the deleted
+    inventory's open orders.
+
+  A new command declares what it changes in its `CommandType` constant; `Storage` needs no change.
+  Rejected commands throw before this is called, so they never write a file.
+* Both saves are attempted even if one fails. Failures raise one `StockHolmException` naming each file that
+  failed and reporting that changes are already applied in memory. The previous save file is preserved if writing
+  the temporary file fails.
+
+### Inventory storage component
+
+`stockholm.storage.InventoryStorage` handles the inventory JSON on behalf of Storage, using Gson.
+
+* `DATA_FILE_PATH` is `./data/inventories.json`, relative to the working directory. A constructor accepting a
+  `Path` supports isolated persistence tests.
+* The format is defined by private records (`SavedData`, `SavedInventory`, `SavedItem`), not by `Inventory` and
+  `Item`, so the model classes need no Gson annotations or no-arg constructors:
+  `{"inventories": [{"name": "Shop", "items": [{"name": "Pen", "type": "", "count": 3.0}]}]}`.
+  Orders and the currently entered inventory are not part of this file.
+* `load()` returns `LoadResult` (inventories with items, warnings, inventory count). A missing file loads nothing.
+  Invalid JSON, or no `inventories` list, raises `CorruptFileException` (an `IOException`); other read errors raise
+  a plain `IOException`. Invalid entries are skipped with a warning: an inventory with no `items`, or an item with
+  a blank name or a missing, non-finite, or non-positive count. A missing `type` loads as `""`.
+* Every loaded inventory gets a unique name that commands can type, with a warning for each renamed one. Files
+  saved before inventory commands stripped quotes could hold names like `" New Shop "` that no command can type.
+  * Names that are already clean are kept, the first of each in file order.
+  * Others are cleaned by `cleanName`: double quotes are removed and leading/trailing whitespace is trimmed.
+    A missing name, or one that is blank after cleaning (checked with `isBlank`, since `trim` keeps Unicode
+    whitespace such as U+3000), becomes `_`.
+  * A name that is still taken gets the lowest free suffix from ` (2)`, e.g. ` Shop ` becomes `Shop (2)` if `Shop`
+    exists, and a second blank name becomes `_ (2)`.
+  * `LoadResult.renamedInventories()` maps each changed saved name to its new name, unless another inventory kept
+    that saved name, whose orders it then keeps.
+* `save(List<Inventory>)` uses the same temporary-file-then-atomic-move approach as `OrderStorage`.
+
+### Backups
+
+`stockholm.storage.BackupFile` (package-private) makes the backups for both save files.
+
+* `create(Path)` copies the file to a timestamped sibling, e.g. `inventories.json.2026-10-13T14-03-22.bak` or
+  `orders.csv.2026-10-13T14-03-22.bak`. Older backups are never replaced; a second backup in the same second
+  gets a `-1`, `-2`, ... suffix.
+* If an existing backup of the same file has identical contents, no copy is made and that backup is returned,
+  so restarting repeatedly on the same bad file does not pile up copies.
+* `create(Path, Clock)` takes the time source, so tests can use a fixed clock for predictable names.
+* Backups are not deleted automatically; they are only made when loading finds a problem.
+
+### Order storage component
+
+`stockholm.storage.OrderStorage` handles the order CSV on behalf of Storage.
+
+* `DATA_FILE_PATH`, at the top of the class, is the developer-configurable final default path:
+  `./data/orders.csv`, relative to the working directory. Launch from the project root to place `data`
+  beside `src`. A constructor accepting a `Path` supports isolated persistence tests.
+* The file used to be `./data/OrdersData.csv` (`LEGACY_DATA_FILE_PATH`). If only the legacy file exists, `load()`
+  first moves it to `DATA_FILE_PATH`, so existing orders carry over; if both exist, the legacy file is ignored.
+  `OrderStorage(Path, Path)` takes both paths, so tests can check this without touching the real `data` folder.
+* The whole `OrderHistory` is saved to one UTF-8 CSV, with the header
+  `Inventory,OrderState,ItemName,ItemType,ItemCount,Src,Dst,Reason,ItemMin,CreatedAt,LastStatusChangedAt`.
+  The two timestamp columns contain ISO-8601 UTC instants. `CreatedAt` is unchanged by lifecycle transitions;
+  `LastStatusChangedAt` records the latest successful transition, or creation for a new order.
+  The `Inventory` column holds
+  `Order.getInventoryName()`. `ItemMin` is the item's minimum stock level, empty when none is set; a negative or
+  non-numeric minimum skips the row with a warning. Older headers (lowercase `src,dst`, or without `Reason`,
+  `ItemMin`, or timestamps) are also accepted on load. Missing timestamp fields remain unknown instead of being
+  assigned the load time; a later status change records its time. Malformed timestamps skip the row with a warning.
+  Eight-field rows load with no minimum, and seven-field rows with no reason either.
+  Rows are in creation order across all inventories, so `order list` numbers survive a restart.
+  No order-kind field is stored: an empty `src` and matching `dst` imply an import; an empty `dst` and matching
+  `src` imply an export. Two distinct, non-blank endpoints with `Inventory` matching `Src` imply a transfer.
+  Transfers use the same CSV columns, including the source minimum and optional rejection reason, and restore their
+  saved state without replaying stock changes. Other endpoint combinations are rejected.
+* CSV quoting preserves commas, double quotes, Unicode, and whitespace. Each order occupies one physical line;
+  line breaks in fields are rejected so malformed rows can be skipped independently. Counts must be positive
+  and finite, names must not be blank, and states must match `OrderState` exactly. Before endpoints are matched,
+  each non-empty `Inventory`, `Src` and `Dst` name is replaced by its new name if `load(Map)` was given one,
+  otherwise cleaned like `InventoryStorage.cleanName` (so a blank name becomes `_`), with one warning per changed
+  name. An empty field still means an import or export has no source or destination.
+* `load()` returns `LoadResult`: the restored orders in file order, and warning messages with physical
+  line numbers and the quoted erroneous rows. Each malformed row raises an
+  `IOException` internally, which the loader catches to collect the warning and continue. A missing file loads
+  zero orders; other file errors propagate. Loading does not rewrite the file.
+* `save(OrderHistory)` validates every order, creates the directory if necessary, writes a temporary sibling,
+  and replaces the target using an atomic move where supported (a regular replacement otherwise).
+  Invalid order data and I/O failures raise exceptions. Temporary files are cleaned up after the attempt.
+* Delivered imports are restored as delivered without re-adding their items to stock; stock itself comes from
+  `InventoryStorage`. The `data` folder is ignored by Git.
+
+### Item search: `find`
+
+`find [KEYWORD] [--type=TYPE]` lets a user locate items by name and/or type without paging through every
+inventory's `item list`.
+
+**How it is implemented.** `CommandType.FIND` is declared with `Location.ANYWHERE` and `Changes.NONE`.
+`ItemCommandParser.parseFind` reuses `ArgumentParser.splitNameAndOptions` and `parseOptions`, so the keyword
+follows the same quoting rules as item names. It puts the keyword in `ArgKey.FIND_KEYWORD` and the type in
+`ArgKey.ITEM_TYPE`, and rejects a `find` with neither, so a search never silently lists everything.
+`FindHandlers.find` then works as shown below for `find pen` typed outside any inventory:
+
+![Sequence diagram for find pen](images/FindSequence.png)
+
+1. It picks the inventories to search: only the current one if the user is inside an inventory, otherwise all of
+   them, in the order they were created.
+2. For each inventory, `findMatchesIn` walks `getItems()` and keeps an item if its name contains the keyword and its
+   type equals `--type`, both compared ignoring case (`Locale.ROOT`, so results do not depend on the user's locale).
+3. Matches are kept per inventory, keyed by their one-based `item list` number, and `ResultFormatter.findResults`
+   lists them under each inventory's name. Inventories with no match are left out, and if nothing matches at all the
+   result is `No items matching "pen".`
+
+`find` only reads data: its `Changes.NONE` means `Storage` never saves after it.
+
+**Why it is implemented this way, and alternatives considered:**
+
+* **Where to search.** Inside an inventory, `find` searches only that inventory, because the user is working on it.
+  Outside, it searches every inventory, because the user may not know where an item is kept. (Unlike `stock`, which
+  needs an inventory name when used outside one, `find` never needs a name.) Always searching everything was rejected
+  because, inside a large inventory, matches from other inventories would bury the ones the user can act on (e.g.
+  with `export`), since item numbers only work in the current inventory.
+* **A top-level `find` instead of `item find`.** `item` commands are only allowed inside an inventory (they are
+  declared `Location.INSIDE`). Searching across inventories has to work outside one, so it gets its own command word.
+* **Substring match for names, exact match for types.** Users rarely remember an item's full name, so names match on
+  any part (`pen` finds `Blue Pen`). Types are categories chosen from a small set, so a partial match would mostly
+  produce false hits (`--type=Food` should not match `Seafood`). Regular expressions and fuzzy matching were rejected
+  as harder to type in a CLI and to explain in the User Guide.
+* **Keeping `item list` numbers** instead of renumbering matches from 1 lets the user pass a number straight to
+  `export` or `item delete` after `enter`-ing the inventory, without listing it again.
+
+### Low-stock thresholds and alerts: `item min`, `restock`
+
+Users can give an item a minimum stock level with `item min INDEX COUNT`. Whenever the item falls below it, they are
+alerted, and `restock [NAME]` lists everything that needs reordering. This helps them reorder before stock runs out.
+
+**How it is implemented.** The minimum is a property of the item, so it is stored in `Item` itself:
+
+![Class diagram for minimum stock levels](images/LowStockClassDiagram.png)
+
+* `Inventory` and `Item` are a composition: each item belongs to exactly one inventory and is deleted with it, so
+  its minimum goes too. Orders never share these items; they hold their own copies.
+* `Item.minCount` holds the minimum, with `0` meaning "none". `isLowOnStock()` is the single definition of "low"
+  (`minCount > 0 && count < minCount`), and `getShortfall()` gives the amount to reorder, computed with `BigDecimal`
+  so decimal counts do not produce rounding noise (`0.3 - 0.1` gives `0.2`). Every feature below uses these two
+  methods, so the rule lives in one place.
+* `ItemCommandParser.parseItemMin` accepts `0` (to clear) or a positive decimal (via
+  `ArgumentParser.requireZeroOrPositiveDecimal`), and `ItemHandlers.setMinimum` sets it on the item numbered in
+  `item list`. `CommandType.ITEM_MIN` is declared with `Location.INSIDE` and `Changes.INVENTORIES`, so the new minimum
+  is saved immediately.
+* `InventoryStorage` saves the minimum as an optional `min` field of each item. Items without a minimum save `null`,
+  which Gson leaves out, so save files from before this feature load unchanged and stay unchanged. A `min` that is
+  negative or not a number is ignored with a warning, keeping the item: losing a whole item over a bad threshold
+  would be worse than losing the threshold.
+
+Alerts are raised by the commands that can make an item low. The sequence diagram shows `export 1 --count=7` on a
+pen with 10 in stock and a minimum of 5. `createExport` hands over to its own `reserveStock` method, and the `ref`
+frame stands for the stock check and order creation shown in the [Order component](#order-component):
+
+![Sequence diagram for an export that triggers a low-stock alert](images/LowStockExportSequence.png)
+
+After reducing the stock, `OrderHandlers.createExport` (through `reserveStock`, shared with `transfer`) either
+removes the item (if it reached 0) and adds an `Out of stock` alert when it had a minimum, or asks the item whether
+it is now low and, if so, adds a `Low stock` alert with `getShortfall()` as the reorder amount. The alert is
+appended to the command's normal `Result`, so it is printed right under the order details. The export order's item
+copy keeps the minimum too, and `OrderHandlers.changeState` copies it into the refunded item, so rejecting or
+canceling an export that emptied the item brings the item back with its minimum. Minimums are per inventory, so the
+copy is made only when stock goes back into the order's source (`src`); stock delivered into another inventory, e.g.
+by a transfer order, never takes the source's minimum. If the item still exists, the refund merges into it and that
+item keeps its own (possibly changed) minimum. `OrderStorage` saves the minimum, so this also works after a restart.
+
+`item min` follows the same decision when the new minimum is already above the count:
+
+![Activity diagram for deciding which alert to show](images/LowStockAlertActivity.png)
+
+Two read-only views use the same rule: `stock` appends `[LOW: min COUNT]` to low items
+(`ResultFormatter.lowStockMarker`), and `restock` (`StockHandlers.restock`, laid out by
+`ResultFormatter.restockList`) lists only the low items, with `(min M, reorder S)`. `restock` is declared
+`Location.ANYWHERE`. With a name, or inside an inventory, it finds its inventory with
+`StateGuards.requireNamedOrCurrentInventory`, like `stock`. Outside an inventory without a name, `restockAll` checks
+every inventory instead of rejecting the command, and `ResultFormatter.restockListAll` groups the low items by
+inventory, like `find`. This answers "what do I need to reorder?" in one command, which is the question users ask
+most often when they are not working in a particular inventory. Both paths share `findLowItems` and
+`hasAnyMinimum`, so the rule for "low" is still only in `Item`. The `Low stock` alert text is built by
+`ResultFormatter.lowStockAlert`, so `export`, `transfer` and `item min` word it the same way.
+
+**Why it is implemented this way, and alternatives considered:**
+
+* **Per-item minimums instead of one threshold.** `stock --below=COUNT` already offers a single, ad-hoc threshold,
+  but a sensible minimum differs per item (5 boxes of paper vs 200 pens). A stored per-item minimum also lets the app
+  alert the user without being asked, which an ad-hoc threshold cannot.
+* **A field in `Item` instead of a separate map** (e.g. `Map<String, Double>` from item name to minimum in
+  `Inventory`). A separate map would keep `Item` smaller, but would have to be kept in sync whenever items are
+  added, merged, renamed or removed, and could silently point at items that no longer exist. Keeping it in `Item`
+  means the minimum moves and disappears together with its item.
+* **Alerting in the command's result instead of a separate notification step.** Appending the alert to the `Result`
+  of the command that caused it needs no new UI code and shows the alert exactly when it happened. Checking every
+  item after every command (e.g. in the main loop) was rejected: it would repeat the same alert after every unrelated
+  command until the user restocks, which trains users to ignore it. `restock` and the `stock` markers cover the
+  "what is still low?" question instead.
+* **Clearing with `item min INDEX 0`** instead of a separate `item min INDEX --clear` keeps one syntax, and `0` is
+  already the stored value for "no minimum".
+
+**Limitations and possible extensions** (not implemented):
+
+* When an item's stock reaches 0, the existing `export` rule removes the item, so its minimum is lost too; the
+  `Out of stock` alert says so. Keeping out-of-stock items with a count of 0 would preserve the minimum, but would
+  change how `item list`, `item delete` and item numbers behave across the app, so it was left for a future version.
+* Delivering an import order does not yet say whether it brought an item back above its minimum. This could reuse
+  `isLowOnStock()` in `OrderHandlers.deliver` to add a `Restocked` message.
+* `restock` could create the reorder for the user, e.g. `restock Shop --order` creating one import order per low item
+  for its shortfall, since `getShortfall()` already gives the amount.
+
+### Not implemented yet
+
+These exist as placeholders, so avoid depending on their current shape:
+
+* The currently entered inventory is not saved; StockHolm always starts outside any inventory.
+* Optional order notes. Order creation and last status-change timestamps are already implemented.
+
+### Adding a new command
+
+Example: a hypothetical `item rename INDEX NEW_NAME` command, used inside an inventory. (`item edit INDEX --name=NAME`
+already does this; the example is chosen because it touches every step while staying small.)
+
+1. **Op code**: add `ITEM_RENAME` to `CommandType` with its usage, description, location and what it changes:
+   `ITEM_RENAME("item rename INDEX NEW_NAME", "rename the item numbered in item list", Location.INSIDE,
+   Changes.INVENTORIES)`. Its position among the `INSIDE` constants sets where `help` lists it, and `Changes`
+   makes Storage save the inventory file after it.
+2. **Argument keys**: reuse existing keys where they mean the same thing (`ITEM_INDEX`, `ITEM_NAME`), and add new ones
+   to `ArgKey` only when needed.
+3. **Parse it** in `ItemCommandParser`: add a `case "rename"` to `parseItemCommand` and a `parseItemRename` helper.
+   (A new top-level command word also needs a `case` in `Parser.parseCommand`.) Check the syntax with
+   `requireIndex` and `requireArg`, using `CommandType.ITEM_RENAME.usage()` as the hint, then build the command:
+   ```java
+   return new Command(CommandType.ITEM_RENAME, Map.of(
+           ArgKey.ITEM_INDEX, index,
+           ArgKey.ITEM_NAME, newName));
+   ```
+4. **Process it**: add `static Result rename(Command command, AppState state)` to `ItemHandlers`, and register it in
+   `Processor.createHandlers` with `handlers.put(CommandType.ITEM_RENAME, ItemHandlers::rename)`. The location is
+   already checked, so it can use `state.getCurrentInventory()` directly. It checks the index is in range (reuse
+   `StateGuards.requireItemAtIndex`) and the new name is not taken, throws a `StockHolmException` if not, and returns
+   a `Result` with the message to show.
+5. **Test it**: add unit tests to `ItemCommandParserTest` (valid input and each syntax error; new shared helpers
+   go in `ArgumentParserTest`) and integration tests to `ItemCommandsTest` (success and each broken rule, including
+   running it outside an inventory). Helpers such as `invCommand`, `itemAdd` and `enterNewShop` in
+   `ProcessorTestBase` keep the tests short.
+   If the command changes saved data, also add it to the expected sets in
+   `CommandTypeTest.changes_matchWhatEachCommandModifies`. `ProcessorTest.process_everyCommandType_hasHandler`
+   fails until the handler is registered.
+6. **Document it** in the User Guide, and add a manual test case below.
+
+You never need to touch `StockHolm`, `Printer`, `Result` or `Storage` to add a command.
+
+### Testing and conventions
+
+* Use **Java 25**. If your default JDK is different, run `export JAVA_HOME=/path/to/jdk-25` first.
+* Run all tests and style checks with `./gradlew check`. `./gradlew test`, `./gradlew integrationTest` and
+  `./gradlew e2eTest` run only the unit, integration or end-to-end tests.
+* Tests are split into three source sets, each mirroring the main package structure:
+  * **Unit tests** in `src/test/java` check one class on its own, e.g. `Item`, `OrderHistory`, one parser, or one
+    storage class with temporary files: `src/test/java/stockholm/parser/ItemCommandParserTest.java`.
+  * **Integration tests** in `src/integrationTest/java` check several components together: commands parsed by
+    `Parser` and run by `Processor` against an `AppState` (one class per command area, such as `TransferTest`,
+    sharing helpers in `ProcessorTestBase`), and the process-then-save flow through `Storage` (`StorageSaveTest`,
+    `StorageLoadTest`).
+  * **End-to-end tests** in `src/e2eTest/java` run `build/libs/stockholm.jar` as a separate process through
+    `AppRunner`, so packaging mistakes such as a missing dependency are caught too. `AppRunner`
+    types commands, closes the input and returns everything printed. Each run uses a temporary working
+    directory, so its `data` folder is fresh and the project's own data is never touched. `SessionTest` covers
+    single sessions; `PersistenceTest` covers restarts, damaged save files and inventories renamed on load.
+    They must be run through Gradle, which builds the jar first and passes its path to `AppRunner`.
+* `./gradlew coverageReport` runs the unit and integration tests and writes their combined JaCoCo coverage to
+  `build/reports/jacoco/coverageReport/html/index.html`, with each source file highlighted line by line. The
+  end-to-end tests are not included, as the coverage agent does not follow the separate processes they start, so
+  `StockHolm`, `Ui` and `InputReader` show as uncovered even though the end-to-end tests run them.
+* Test method names follow `methodName_condition_expectedResult`, e.g. `parseCommand_invAddWithoutName_throwsException`.
+* To test console output, redirect `System.out` to a `ByteArrayOutputStream` in `@BeforeEach` and restore it in
+  `@AfterEach` (see `PrinterTest`).
+* **Assertions** check things that can only go wrong through a bug (e.g. an item with a non-positive count, or a
+  threshold the Parser should have rejected); user mistakes are reported with a `StockHolmException` instead.
+  Assertions are enabled for `./gradlew run` and all test tasks. When running the jar, add `-ea`:
+  `java -ea -jar build/libs/stockholm.jar`. In IntelliJ, add `-ea` to the run configuration's VM options.
+* **Logging** uses `java.util.logging`, one `LOGGER` per class (see `ItemCommandParser` and `StateGuards`).
+  Log routine events at `FINE`, which is hidden by default, so logs never mix with the app's output. To see them,
+  run with
+  `-Djava.util.logging.config.file=logging.properties`, using a file such as:
+  ```
+  handlers=java.util.logging.ConsoleHandler
+  stockholm.level=FINE
+  java.util.logging.ConsoleHandler.level=FINE
+  ```
+* Diagram sources are in `docs/diagrams/*.puml`. After editing one, regenerate the PNG with
+  `java -jar plantuml.jar -tpng -o ../images docs/diagrams/*.puml`
+  ([download plantuml.jar](https://plantuml.com/download)).
 
 
 ## Product scope
 ### Target user profile
 
-{Describe the target user profile}
+Small-business owners and storekeepers who:
+
+* keep stock in several places (e.g. a warehouse and one or more shops) and need to move stock between them;
+* want orders reviewed before delivery and a history of stock movements;
+* prefer typing commands to using a mouse, and are comfortable with a command-line app.
 
 ### Value proposition
 
-{Describe the value proposition: what problem does it solve?}
+StockHolm lets users manage multiple inventories from a fast, keyboard-driven CLI, with an approval-based order
+workflow (import, export and transfer orders) that keeps stock accurate and keeps a history of every order.
+Low-stock alerts and a restock list tell them what to reorder before items run out.
 
 ## User Stories
 
 |Version| As a ... | I want to ... | So that I can ...|
 |--------|----------|---------------|------------------|
 |v1.0|new user|see usage instructions|refer to them when I forget how to use the application|
-|v2.0|user|find a to-do item by name|locate a to-do without having to go through the entire list|
+|v1.0|inventory manager|view the stock levels of any inventory without entering it|check stock quickly from anywhere|
+|v1.0|inventory manager|list only the items that are running low|know what to restock|
+|v1.0|inventory manager|create an import order awaiting approval|record incoming goods for review before they are added to stock|
+|v1.0|inventory manager|create an export order that reserves stock immediately|avoid offering goods that are already committed to an order|
+|v1.0|inventory manager|approve a pending order|let staff know it may proceed to delivery|
+|v1.0|inventory manager|mark a waiting-for-delivery import order as delivered|add goods to stock when they arrive|
+|v2.0|inventory manager|search items by name or type across all inventories|find an item quickly without knowing where it is kept|
+|v2.0|inventory manager|set a minimum stock level for an item|be alerted when it falls below it and reorder before it runs out|
+|v2.0|inventory manager|see every item that is below its minimum, with how much to reorder|place all my reorders at once|
+|v2.0|inventory manager|rename an inventory and update its order references|keep the history connected to the renamed inventory|
+|v2.0|inventory manager|edit an item's name or category|correct its details without changing its stock|
+|v2.0|inventory manager|import validated CSV item details in bulk|add many items without partial stock changes|
+|v2.0|inventory manager|create a transfer order between inventories|track stock removed from its source and added to its destination on delivery|
+|v2.0|inventory manager|view a paginated list of past orders|review order history without overloading the page|
+|v2.0|inventory manager|filter order history by status, inventory, or order type|find relevant records quickly|
+|v2.1|inventory manager|see the items to reorder across all my inventories in one list|place all my reorders without checking each inventory|
+|v2.1|inventory manager|see when an order was created and last changed state|trace its progress|
 
 ## Non-Functional Requirements
 
-{Give non-functional requirements}
+1. **Platform**: runs on any mainstream OS (Windows, macOS, Linux) with Java 25 installed, as a single
+   `stockholm.jar` with no installer and no other dependencies.
+2. **Offline**: works fully without a network connection; all data stays on the user's computer.
+3. **Performance**: with up to 1000 items across all inventories and 1000 orders, every command (including start-up
+   loading and the save after a command) responds within about one second on a typical laptop.
+4. **Data safety**: a successful command is saved to disk immediately, so quitting or a crash loses no completed
+   command. A save writes a temporary file first, so a failed save never corrupts the previous file, and a damaged
+   file is backed up before the app continues.
+5. **Portable, human-editable data**: data is stored as plain UTF-8 text (`data/inventories.json` and
+   `data/orders.csv`) that an advanced user can read, back up, or edit in a text editor or spreadsheet.
+6. **Usability**: a user who types fast should be able to do common tasks faster than with a mouse-driven app.
+   Every error message says what was wrong and, where relevant, shows the correct usage.
 
 ## Glossary
 
-* *glossary item* - Definition
+* **Inventory**: a named list of items kept in one place, e.g. `Shop` or `Main Warehouse`. Names are
+  case-sensitive and unique.
+* **Current inventory**: the inventory the user has `enter`-ed; its name is shown in the prompt. Commands marked
+  *inside* only work in one.
+* **Item**: a named stock entry in an inventory, with an optional type and a positive count. Names are unique within
+  an inventory.
+* **Type**: an optional category of an item, e.g. `Stationery`. An item with no type never conflicts with one that
+  has a type.
+* **Count**: the number of units of an item; it may be a decimal (e.g. `2.5` kg).
+* **Item number / order number**: the one-based position shown by `item list` (or `stock`) and `order list`, used to
+  refer to an item or order in commands.
+* **Minimum stock level**: an optional per-item threshold set with `item min`. An item is **low on stock** when its
+  count is below its minimum; the **shortfall** (minimum minus count) is the amount to reorder.
+* **Order**: a request to move stock, recorded in the order history and moved through the order states.
+  * **Import order**: brings new stock into one inventory once delivered.
+  * **Export order**: takes stock out of one inventory; the stock is reserved (deducted) when the order is created.
+  * **Transfer order**: moves stock from a source inventory to a destination inventory; reserved from the source
+    when created, added to the destination when delivered.
+* **Order states**: `WAITING_APPROVAL` (new), `WAITING_FOR_DELIVERY` (approved), `DELIVERED`, `REJECTED` (with a
+  reason) and `CANCELED`. The first two are **open**; the rest are closed and never change again.
+* **Refund**: returning the reserved stock of a rejected or canceled export or transfer order to its source
+  inventory.
+* **Order history**: the single list of all orders of all inventories, in creation order, including orders of
+  deleted inventories.
+* **Mainstream OS**: Windows, macOS, Linux.
 
 ## Instructions for manual testing
 
-{Give instructions on how to do a manual product testing e.g., how to load sample data to be used for testing}
+> These instructions are a starting point for testers; you are encouraged to try more cases, especially unusual input.
+> Expected messages are shown as the app prints them, except variable values such as UTC timestamps, which are
+> shown in angle brackets.
+
+### Launch and shutdown
+
+1. **Prerequisites**: Java 25 (`java -version`).
+2. **Build** the jar from the project folder with `./gradlew shadowJar`. It is created at `build/libs/stockholm.jar`.
+3. **Launch** with `java -jar build/libs/stockholm.jar`.
+   Expected: `Hello, Welcome to StockHolm, your inventory manager program`, any malformed-order warnings,
+   then `Loaded X inventory(ies) and Y order(s).`, a bar, and the prompt `❯`.
+4. **Exit** with `bye` (or `quit`, `exit`, `close`). Expected: `See you next time`, and the app ends.
+   Pressing Ctrl+D (end of input) also exits cleanly.
+
+> **Data is saved.** For a fresh manual-test session, use a working directory with no existing `data` folder.
+> Otherwise saved inventories are restored, so setup commands such as `inv add Shop` may report that the inventory
+> already exists.
+
+### Saving and restoring data
+
+1. Launch from the project root. Run `inv add Shop`, `enter Shop`, `import Pen --count=2`, and `approve 1`.
+   Inspect `data/orders.csv` immediately: it contains an import row in `WAITING_FOR_DELIVERY`.
+2. Run `deliver 1`, then `export 1 --count=1`. The file updates after each command, recording the delivered import
+   and a new pending export with `src=Shop` and an empty destination.
+3. Quit and restart. Expected: `Loaded 1 inventory(ies) and 2 order(s).`. Run `order list`:
+   both orders retain their item data and states. `item list` shows `Pen x1`: the delivered 2, minus the export.
+4. Quit. Insert a line `invalid order row` after the CSV header. Restart: the warning
+   `Skipped order on line 2 in ./data/orders.csv: "invalid order row" (Expected 11 (or legacy 9, 8 or 7) CSV fields.)` appears
+   (Windows shows `.\data\orders.csv` in the path instead). The summary still reports two loaded orders. A timestamped
+   `data/orders.csv.<timestamp>.bak` holds
+   the file as it was. Restart again without changes: no new backup appears.
+5. Create orders in another inventory, then leave it and delete `Shop`. `order list` still shows Shop's orders,
+   with the open ones now `CANCELED`, and the CSV records them as `CANCELED`. The other inventory's orders are
+   unchanged.
+6. Quit. Replace the contents of `data/inventories.json` with `{broken` and restart. Expected: a message that the
+   file is corrupted, `Original file copied to ./data/inventories.json.<timestamp>.bak. Starting with no
+   inventories.`, and the summary `Loaded 0 inventory(ies) and N order(s).` The orders are kept in `order list`, but
+   no inventories are recreated for them.
+7. Quit. Write `{"inventories":[{"name":"Shop","items":[{"name":"Pen","count":-1},{"name":"Box","count":2}]}]}` to
+   `data/inventories.json` and restart. Expected: `Skipped item 1 of Shop in ./data/inventories.json: Pen has a
+   missing or non-positive count.`, a backup message, and `stock Shop` shows only `Box x2`.
+8. Quit. Write `{"inventories":[{"name":"  Padded  ","items":[]}]}` to `data/inventories.json` and restart.
+   Expected: `Renamed inventory 1 in ./data/inventories.json from "  Padded  " to Padded, ...`, a backup message,
+   and `enter Padded` works.
+9. Quit. Replace `data/inventories.json` with a folder of the same name and restart. Expected:
+   `Cannot load inventories: ...`, and the app exits without showing the prompt.
+
+### Sample data
+
+Paste these lines one at a time after launching to get a ready-made state for the tests:
+
+```
+inv add Main Warehouse
+inv add Shop
+enter Shop
+item add "A4 Paper Case" --type="Stationery" --count=2
+item add Rice --count=2.5 --type=Food
+item add Blue Pen
+```
+
+Expected after `item list`:
+
+```
+Items in Shop:
+1. A4 Paper Case (Stationery) x2
+2. Rice (Food) x2.5
+3. Blue Pen x1
+```
+
+### Managing inventories
+
+Run these **outside** any inventory (the prompt is `❯` with no name).
+
+1. **Adding**
+    1. `inv add Main Warehouse` → `Added inventory: Main Warehouse`. Names may contain spaces.
+    2. `inv add Shop` twice → the second time: `Inventory already exists: Shop`.
+    3. `inv add` → `Missing inventory name. Usage: inv add NAME`
+    4. `inv add "  New Shop  "` → `Added inventory: New Shop`. `stock " New Shop "`, `restock " New Shop "`
+       and `enter " New Shop "` all find it. After `back`, `inv add New Shop` reports a duplicate.
+       `inv delete " New Shop "` deletes it. Blank quoted names and unmatched quotes are rejected.
+2. **Listing**: `inv list` → `Inventories:` followed by a numbered list in the order added.
+   With no inventories: `No inventories yet.`
+3. **Deleting**
+    1. `inv delete Shop` → `Deleted inventory: Shop`; it no longer appears in `inv list`.
+    2. `inv delete Ghost` → `No such inventory: Ghost`
+4. **Renaming**: `inv rename Shop Central Shop` updates the inventory and all order source/destination names,
+   including transfer orders and closed history. Its items and order states stay intact. Quote an old name
+   containing spaces: `inv rename "Main Warehouse" Central Warehouse`. Both names have surrounding quotes and
+   leading/trailing whitespace removed: `inv rename " Shop " " New Shop "` saves `New Shop`, which can be found
+   with `enter New Shop` or `enter " New Shop "`.
+   `inv rename Shop New Shop "` reports `Unexpected " in new inventory name.` followed by the usage;
+   the inventory and its orders keep their original names.
+   If a deleted inventory named `B` remains in a canceled transfer from `A` to `B`, `inv rename A B` is rejected
+   before any change; otherwise the saved transfer would have the same source and destination. Successful renames
+   save inventories and orders.
+5. **Wrong subcommand**: `inv` or `inv change Shop` → `Usage: inv add|rename|delete|list ...`
+
+### Entering and leaving an inventory
+
+Setup: `inv add Shop` and `inv add Main Warehouse`.
+
+1. `enter Shop` → `Entered inventory: Shop`, and the prompt becomes `Shop ❯`.
+2. `enter Main Warehouse` while inside Shop → `Entered inventory: Main Warehouse`; the prompt switches directly.
+3. `back` → `Left inventory: Main Warehouse`, and the prompt becomes `❯` again.
+4. `back` again (outside) → `You are not inside an inventory. Use enter NAME first.`
+5. `enter Ghost` → `No such inventory: Ghost`; the prompt does not change.
+6. `enter` → `Missing inventory name. Usage: enter NAME`
+
+**Location rules:**
+
+1. Inside `Shop`, run `inv list`, `inv add Office` or `inv delete Shop`.
+   Expected for each: `You are inside Shop. Use back to leave it first.`, and nothing changes.
+2. Outside any inventory, run `item list`, `item add Pen` or `item delete 1`.
+   Expected for each: `You are not inside an inventory. Use enter NAME first.`
+
+### Adding items
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. **All options**: `item add "A4 Paper Case" --type="Stationery" --count=2` → `Added item: A4 Paper Case (Stationery) x2`
+2. **Options in any order, decimal count**: `item add Rice --count=2.5 --type=Food` → `Added item: Rice (Food) x2.5`
+3. **No options** (count defaults to 1, no type): `item add Blue Pen` → `Added item: Blue Pen x1`
+4. **Quoted type with spaces**: `item add "Office Chair" --type="Office Supplies" --count=1`
+   → `Added item: Office Chair (Office Supplies) x1`
+5. **Merging** an existing item (after test 1): `item add "A4 Paper Case" --count=3`
+   → `Added 3 to existing item: A4 Paper Case (Stationery) x5`. `item list` still shows it only once.
+6. **Merging with a different type** (after test 2): `item add Rice --type=Grain`
+   → `Item already exists with a different type: Rice (Food) x2.5.`
+   The count stays at 2.5.
+7. **Invalid input**. Each is rejected and nothing is added:
+
+| Input | Expected message |
+|---|---|
+| `item add` | `Missing item name. Usage: item add NAME [--type=TYPE] [--count=COUNT]` |
+| `item add "Unclosed --count=2` | `Missing closing quote in item name. Usage: ...` |
+| `item add Pen --count=0` | `Count must be a positive number, e.g. 2 or 2.5: 0` |
+| `item add Pen --count=abc` | `Count must be a positive number, e.g. 2 or 2.5: abc` |
+| `item add Pen --colour=blue` | `Unknown option --colour. Usage: ...` |
+| `item add Pen --count=1 --count=2` | `Option given more than once: --count` |
+| `item add "Pen" blue` | `Invalid option: blue. Usage: ...` |
+
+### Creating import orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `import "A4 Paper Case" --type=Stationery --count=2` prints:
+   ```text
+   Import order created:
+   Item name: A4 Paper Case
+   Item type: Stationery
+   Item count: 2
+   ```
+   `item list` still reports `No items in Shop yet.` because the order awaits approval.
+2. `import Pen` prints the name `Pen`, an empty type, and count `1`.
+3. `import Rice --count=2.5 --type=Food` prints count `2.5` and type `Food`.
+4. `item add Rice --type=Food --count=5`, then `import Rice --type=Food --count=2`.
+   `item list` still shows `Rice (Food) x5`.
+5. `back`, then `import Pen` reports `You are not inside an inventory. Use enter NAME first.`
+6. **Invalid input**. Each is rejected and no order is created:
+
+| Input | Expected message |
+|---|---|
+| `import` | `Missing item name. Usage: import NAME [--type=TYPE] [--count=COUNT]` |
+| `import "Unclosed --count=2` | `Missing closing quote in item name. Usage: ...` |
+| `import Pen --count=0` | `Count must be a positive number, e.g. 2 or 2.5: 0` |
+| `import Pen --count=abc` | `Count must be a positive number, e.g. 2 or 2.5: abc` |
+| `import Pen --colour=blue` | `Unknown option --colour. Usage: ...` |
+| `import Pen --count=1 --count=2` | `Option given more than once: --count` |
+| `import "Pen" blue` | `Invalid option: blue. Usage: ...` |
+
+### Creating export orders
+
+Setup: `inv add Shop`, then `enter Shop`, then `item add Rice --type=Food --count=2.5`.
+
+1. `export 1 --count=1` prints:
+   ```text
+   Export order created:
+   Item name: Rice
+   Item type: Food
+   Item count: 1
+   ```
+   `item list` shows `1. Rice (Food) x1.5`. `order list` shows an export order in `WAITING_APPROVAL`.
+2. `export 1 --count=2` reports `Cannot export 2 of Rice; only 1.5 available.` Stock and orders stay unchanged.
+3. `export 1` exports the remaining 1.5. `item list` reports `No items in Shop yet.` The two export orders
+   retain counts 1 and 1.5. Giving the exact remaining count explicitly has the same effect.
+4. `export 1` in the empty inventory reports
+   `No item number 1. Shop has 0 item(s); use item list to see them.`
+5. `export`, `export 0`, `export abc`, `export 1 --count=0`, `export 1 --count=NaN`, `export 1 2` (count without
+   `--count=`), `export 1 --type=Food`, and `export 1 --count=1 --count=2` are rejected.
+6. `back`, then `export 1` reports `You are not inside an inventory. Use enter NAME first.`
+7. `enter Shop`, then `item add Rice --count=0.3`, then run `export 1 --count=0.1` and `export 1 --count=0.2`.
+   The item is removed without a rounding residue, and both orders retain their individual counts.
+
+### Creating transfer orders
+
+Setup: create `Warehouse` and `Shop`, then `enter Warehouse` and `item add Rice --type=Food --count=3`.
+
+1. `transfer 1 --count=1 --to=Shop` creates a `Transfer order` in `WAITING_APPROVAL` and reduces Warehouse's Rice
+   to 2. `stock Shop` remains empty. `order list` shows `Transfer order (from Warehouse to Shop)`.
+2. `approve 1`, then `deliver 1` adds Rice x1 to Shop. Warehouse still has Rice x2. Repeating delivery fails.
+3. `back`, then `transfer 1 --from=Warehouse --to=Shop` reserves the remaining 2 and removes Rice from Warehouse.
+   `reject 2 Damaged` restores Rice x2 in Warehouse. Alternatively, approve the order and then cancel it to refund.
+4. `enter Shop`, then `transfer 1 --from=Warehouse --count=1` defaults the destination to Shop and keeps the prompt
+   in Shop. Explicitly naming both endpoints works inside any inventory too.
+5. Source and destination must be different. An omitted endpoint outside an inventory, an unknown inventory,
+   an unavailable item index, an excessive count, a non-positive count, or a destination type conflict fails without
+   changing stock or history. Quote names containing spaces, e.g. `--from="Main Warehouse"`.
+6. Restart with a pending or delivered transfer: endpoints, counts, state, reason and refund minimum survive.
+   Loading does not deduct or deliver stock again. `stock` and `item list` numbers remain identical for each inventory.
+7. Delete a pending transfer's destination from outside: its order becomes `CANCELED` and its stock returns to the
+   source. Recreating the destination does not reopen the order. If a refund has a type conflict, deletion fails
+   without changing any stock or orders. Deleting a source closes its transfers without adding destination stock.
+
+### Listing orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `order list` reports `No orders yet.`
+2. `import Rice --type=Food --count=2.5`, then `import Pen`, then `order list` prints:
+   ```text
+   Orders (Page 1 of 1):
+   1. Import order (to Shop)
+      State: WAITING_APPROVAL
+      Created (UTC): <order 1 creation time>
+      Status changed (UTC): <order 1 creation time>
+      Item name: Rice
+      Item type: Food
+      Item count: 2.5
+   2. Import order (to Shop)
+      State: WAITING_APPROVAL
+      Created (UTC): <order 2 creation time>
+      Status changed (UTC): <order 2 creation time>
+      Item name: Pen
+      Item type:
+      Item count: 1
+   ```
+   `item list` still reports `No items in Shop yet.`
+3. `back`, then `order list` shows the same two orders: it works outside an inventory.
+4. `inv add Warehouse`, `enter Warehouse`, `item add Box --count=2`, `export 1`, then `order list` shows the two
+   Shop orders followed by `3. Export order (from Warehouse)`.
+5. `order` and `order add` report
+   `Usage: order list [PAGE] [--status=STATUS] [--inv=NAME] [--type=TYPE] [--size=SIZE]`.
+   `order list --unknown=1` reports `Unknown option --unknown. Usage: order list ...`.
+6. **Pagination**: `order list 1 --size=2` displays the first two orders (`Orders (Page 1 of 2):`),
+   `order list 2 --size=2` displays order 3 (`Orders (Page 2 of 2):`), and `order list 3 --size=2` reports
+   `No page number 3. There are 2 page(s); use order list to see the first page.`
+7. **Filtering**: `order list --status=WAITING_APPROVAL` displays all three orders; `order list --inv=Shop` displays
+   orders 1 and 2; `order list --type=export` displays only order 3, still numbered `3.`; `order list --type=transfer`
+   and `order list --status=DELIVERED` report `No matching orders found.`
+8. **Timestamps**: For each new order, the two UTC times match. Note order 1's times, then run `approve 1` and
+   `order list`: its creation time stays the same, while its status-change time is not earlier than before.
+   Quit and restart: both times remain unchanged. Run `deliver 1` and `order list`: its creation time still stays
+   the same, and its status-change time records the delivery. Other orders' times remain unchanged.
+
+### Approving orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `import Pen --count=2`, then `order list` shows order 1 in `WAITING_APPROVAL`.
+2. `approve 1` prints `Approved order 1.`; `order list` now shows `State: WAITING_FOR_DELIVERY`.
+   `item list` still reports `No items in Shop yet.`
+3. `approve 1` again reports `Order is not waiting for approval (current state: WAITING_FOR_DELIVERY).`
+4. `approve 2` reports `No order number 2. There are 1 order(s); use order list to see them.`
+5. `approve`, `approve 0`, and `approve abc` are rejected without changing the order.
+6. `back`, then `approve 1` works outside an inventory too: it reports the state error from test 3.
+7. `enter Shop`, `item add Rice --count=3`, and `export 1 --count=1` create export order 2 and reduce Rice to 2.
+   `approve 2` changes that order to `WAITING_FOR_DELIVERY` while Rice remains at 2.
+
+### Rejecting orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `import Pen --count=2`, then `order list` shows order 1 in `WAITING_APPROVAL`.
+2. `reject 1 Damaged packaging` prints `Rejected order 1.`; `order list` now shows:
+   ```text
+   Orders (Page 1 of 1):
+   1. Import order (to Shop)
+      State: REJECTED
+      Created (UTC): <order 1 creation time>
+      Status changed (UTC): <rejection time>
+      Reason: Damaged packaging
+      Item name: Pen
+      Item type:
+      Item count: 2
+   ```
+   `item list` still reports `No items in Shop yet.`
+3. `reject 1 Out of stock` again reports `Order is not waiting for approval (current state: REJECTED).`
+4. `reject 2 Out of stock` reports `No order number 2. There are 1 order(s); use order list to see them.`
+5. `reject`, `reject 0 Damaged`, `reject abc Damaged`, and `reject 1` (missing reason) are rejected without changing
+   the order.
+6. `reject 1 "Damaged packaging"` and `reject 1 --reason="Damaged packaging"` parse the same as test 2.
+7. `item add Rice --count=3`, and `export 1 --count=1` create export order 2 and reduce Rice to 2.
+   `back`, then `reject 2 Cancelled by buyer` changes that order to `REJECTED` and restores Rice in Shop back to 3.
+8. `enter Shop`, `export 1 --count=1`, `back`, `inv delete Shop` prints `Deleted inventory: Shop` and
+   `Canceled 1 open order(s) of Shop.` `reject 3 Damaged` then reports
+   `Order is not waiting for approval (current state: CANCELED).`
+9. `inv add Shop`, then `order list`: order 3 is still `CANCELED`, and the new Shop has no items.
+
+### Canceling orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `import Pen --count=2`, then `cancel 1` reports
+   `Order cannot be canceled (current state: WAITING_APPROVAL).` and the order is unchanged.
+2. `approve 1`, then `cancel 1` prints `Canceled order 1.`; `order list` now shows:
+   ```text
+   Orders (Page 1 of 1):
+   1. Import order (to Shop)
+      State: CANCELED
+      Created (UTC): <order 1 creation time>
+      Status changed (UTC): <cancellation time>
+      Item name: Pen
+      Item type:
+      Item count: 2
+   ```
+   `item list` still reports `No items in Shop yet.`
+3. `cancel 1` again reports `Order cannot be canceled (current state: CANCELED).`
+4. `cancel 2` reports `No order number 2. There are 1 order(s); use order list to see them.`
+5. `cancel`, `cancel 0`, and `cancel abc` are rejected without changing the order.
+6. `item add Rice --count=3`, and `export 1 --count=1` create export order 2 and reduce Rice to 2.
+   `approve 2` changes that order to `WAITING_FOR_DELIVERY`.
+   `back`, then `cancel 2` changes that order to `CANCELED` and restores Rice in Shop back to 3.
+7. Item-type conflict is reported after the state check: `enter Shop`, `export 1 --count=1` (order 3), `approve 3`,
+   `deliver 3`, `item delete 1`, `item add Rice --type=Grain`, then `cancel 3` reports
+   `Order cannot be canceled (current state: DELIVERED).`, not a type conflict.
+
+### Delivering orders
+
+Setup: `inv add Shop`, then `enter Shop`.
+
+1. `import Pen --count=2`, then `approve 1`. `order list` shows order 1 in `WAITING_FOR_DELIVERY`.
+   `item list` still reports `No items in Shop yet.`
+2. `deliver 1` prints `Delivered order 1.`; `order list` now shows `State: DELIVERED`.
+   `item list` now shows `1. Pen x2`.
+3. `deliver 1` again reports `Order is not waiting for delivery (current state: DELIVERED).`
+4. `deliver 2` reports `No order number 2. There are 1 order(s); use order list to see them.`
+5. `import Pen --count=3`, `order list` shows order 2 in `WAITING_APPROVAL`.
+   `deliver 2` reports `Order is not waiting for delivery (current state: WAITING_APPROVAL).`
+   `approve 2`, then `deliver 2` prints `Delivered order 2.`.
+   `item list` now shows `1. Pen x5` (merged into existing item).
+6. `export 1 --count=2` creates export order 3 and reduces Pen to 3.
+   `approve 3`, then `deliver 3` prints `Delivered order 3.`.
+   `order list` shows order 3 in `DELIVERED`, and `item list` still shows `Pen x3`.
+7. `deliver`, `deliver 0`, and `deliver abc` are rejected without changing the order.
+8. `import Ink`, `approve 4`, `back`, `inv delete Shop` cancels order 4. `inv add Shop`, then `deliver 4` reports
+   `Order is not waiting for delivery (current state: CANCELED).`, and the new Shop gets no Ink.
+
+### Viewing stock levels
+
+Setup: the [sample data](#sample-data), then `back` (you are outside all inventories).
+
+1. **Named inventory from outside**: `stock Shop` →
+   ```
+   Stock levels in Shop:
+   1. A4 Paper Case (Stationery) x2
+   2. Rice (Food) x2.5
+   3. Blue Pen x1
+   Total: 3 item(s), 5.5 unit(s)
+   ```
+   The prompt stays `❯`: `stock` does not enter the inventory.
+2. **Current inventory**: `enter Shop`, then `stock` → the same output as test 1.
+3. **Another inventory from inside**: while inside Shop, `stock Main Warehouse` → `No items in Main Warehouse yet.`,
+   and the prompt stays `Shop ❯`.
+4. **Low stock**: `stock Shop --below=2.5` →
+   ```
+   Items in Shop below 2.5:
+   1. A4 Paper Case (Stationery) x2
+   3. Blue Pen x1
+   ```
+   Rice (exactly 2.5) is not listed. `stock Shop --below=1` → `No items in Shop below 1.`
+5. **Invalid input**. Each is rejected:
+
+| Input | Expected message |
+|---|---|
+| `stock` (outside) | `Missing inventory name. Usage: stock [NAME] [--below=COUNT], or enter an inventory first.` |
+| `stock Ghost` | `No such inventory: Ghost` |
+| `stock Shop --below=0` | `Threshold must be a positive number, e.g. 2 or 2.5: 0` |
+| `stock Shop --above=3` | `Unknown option --above. Usage: stock [NAME] [--below=COUNT]` |
+| `stock "Main Warehouse` | `Missing closing quote in inventory name. Usage: stock [NAME] [--below=COUNT]` |
+
+### Finding items
+
+Setup: the [sample data](#sample-data), then `back`, `enter Main Warehouse`, `item add Pen --count=100`, `back`.
+
+1. **Everywhere, by keyword**: `find pen` (outside) →
+   ```
+   Found 2 item(s) matching "pen":
+   Main Warehouse:
+     1. Pen x100
+   Shop:
+     3. Blue Pen x1
+   ```
+   Inventories appear in the order they were created.
+   Matching ignores case: `find PEN` gives the same items.
+2. **Current inventory only**: `enter Shop`, then `find pen` → only `Shop:` and `3. Blue Pen x1` are listed.
+3. **By type**: `find --type=stationery` → `Found 1 item(s) of type stationery:`, then `Shop:` and
+   `1. A4 Paper Case (Stationery) x2`. `find --type=Station` → `No items of type Station.` (types must match fully).
+4. **Keyword and type together**: `find pen --type=Food` → `No items matching "pen" of type Food.`
+5. **Invalid input**:
+
+| Input | Expected message |
+|---|---|
+| `find` | `Give a keyword, a type, or both. Usage: find [KEYWORD] [--type=TYPE]` |
+| `find pen --count=2` | `Unknown option --count. Usage: find [KEYWORD] [--type=TYPE]` |
+| `find pen --type=""` | `Missing item type. Usage: find [KEYWORD] [--type=TYPE]` |
+
+### Minimum stock levels and restocking
+
+Setup: the [sample data](#sample-data) (you are inside Shop with 3 items).
+
+1. **Setting a minimum below the count**: `item min 1 1` → `Set the minimum stock of A4 Paper Case to 1.`
+2. **Setting a minimum above the count**: `item min 2 5` →
+   ```
+   Set the minimum stock of Rice to 5.
+   Low stock: Rice has 2.5 left, below its minimum of 5. Reorder at least 2.5.
+   ```
+3. **Marker in `stock`**: `stock` → the Rice line reads `2. Rice (Food) x2.5 [LOW: min 5]`; other lines are unchanged.
+4. **Restock list**: `restock` → `Items to restock in Shop:` then `2. Rice (Food) x2.5 (min 5, reorder 2.5)`.
+   From outside (`back`), `restock Shop` gives the same list, and `restock` alone checks every inventory:
+   `Items to restock:`, then `Shop:` and `  2. Rice (Food) x2.5 (min 5, reorder 2.5)`. Main Warehouse is not listed,
+   as nothing in it is low.
+5. **Alert on export**: `enter Shop`, `item min 1 2`, then `export 1 --count=1` → the order details are followed by
+   `Low stock: A4 Paper Case has 1 left, below its minimum of 2. Reorder at least 1.`
+   Then `export 1` → `Out of stock: A4 Paper Case has run out and was removed, along with its minimum of 2.`
+6. **Clearing**: `item min 1 0` (item 1 is now Rice) → `Cleared the minimum stock of Rice.`, and `restock` →
+   `No items in Shop have a minimum stock level. Set one with item min INDEX COUNT.`
+7. **Saved with the data**: set `item min 1 3`, then `bye` and relaunch: `enter Shop`, `stock` still shows
+   `[LOW: min 3]` on Rice. In `data/inventories.json`, Rice has `"min": 3.0`; items without a minimum have no `min`.
+8. **Invalid input** (inside Shop):
+
+| Input | Expected message |
+|---|---|
+| `item min 1` | `Missing minimum count. Usage: item min INDEX COUNT` |
+| `item min 1 -1` | `Minimum count must be 0 (to clear it) or a positive number, e.g. 5 or 2.5: -1` |
+| `item min 0 5` | `Item number must be a positive whole number: 0` |
+| `item min 9 5` | `No item number 9. Shop has 2 item(s); use item list to see them.` |
+| `restock Shop --below=2` | `restock takes no options. Usage: restock [NAME]` |
+
+### Listing and deleting items
+
+Setup: the [sample data](#sample-data) (you are inside Shop with 3 items).
+
+1. **Listing**: `item list` → `Items in Shop:` followed by the numbered items, as in the sample data.
+   In an inventory with no items (e.g. `enter Main Warehouse`, then `item list`): `No items in Main Warehouse yet.`
+2. **Deleting**: `item delete 2` → `Deleted item: Rice (Food) x2.5`.
+   Then `item list` shows the remaining items **renumbered** from 1: `1. A4 Paper Case ...`, `2. Blue Pen x1`.
+3. **Number out of range**: `item delete 9` → `No item number 9. Shop has 2 item(s); use item list to see them.`
+4. **Invalid number**:
+
+| Input | Expected message |
+|---|---|
+| `item delete 0` | `Item number must be a positive whole number: 0` |
+| `item delete abc` | `Item number must be a positive whole number: abc` |
+| `item delete` | `Missing item number. Usage: item delete INDEX` |
+
+### Importing item CSV files
+
+Setup: `inv add Shop`, `enter Shop`, then create a UTF-8 file `data/new items.csv` (relative to the folder you
+launched from) whose first line is the header `name,type,count,minCount`.
+
+1. Add rows `Pen,Stationery,2,5` and `"Blue, Fine Pen",Stationery,3,`.
+   `item import "data/new items.csv"` reports `Imported 2 item row(s) into Shop.`
+2. `item list` shows both items; `stock` marks Pen low because its count is below 5. Exit and relaunch to confirm the
+   imported details survive in `inventories.json`.
+3. Change the last row's count to `-1`, then retry. Expected:
+   `CSV row 3: count must be a finite positive decimal: -1.`, and all stock is unchanged.
+4. Try a file with the rows `Ink,,1,` and `Pen,Office,1,`. Expected:
+   `CSV row 3: Item already exists with a different type: Pen (Stationery) x2.` The entire file is rejected,
+   including valid rows before it.
+
+### Editing item details
+
+Setup: `inv add Shop`, `enter Shop`, `item add Pen --type=Stationery --count=3`, then `item min 1 5`.
+
+1. `item edit 1 --name="Blue Pen" --type=Office` updates the item shown by `item list` and keeps its count of 3
+   and minimum of 5. `stock` shows it as low stock under the new name.
+2. `item edit 1 --type=""` clears its category. A second item cannot be renamed to `Blue Pen` while this one exists.
+3. Exit and relaunch: the edited name, category, count, and minimum are restored from `inventories.json`.
+4. `item edit 1` → `Give a new name, a new type, or both. Usage: item edit INDEX [--name=NAME] [--type=TYPE]`
+
+### Other input
+
+1. Pressing Enter on an empty line does nothing; the prompt is shown again.
+2. `dance` → `Unknown command: dance`
+3. Commands are case-sensitive: `QUIT` → `Unknown command: QUIT`
+
+### Running many commands at once (optional)
+
+To repeat a test quickly, put one command per line in a text file and send it as input:
+
+```
+java -jar build/libs/stockholm.jar < commands.txt
+```
+
+The typed commands are not echoed in this mode, so only the prompts and responses appear.
+End the file with `bye`; if you don't, the app still exits when the input runs out.

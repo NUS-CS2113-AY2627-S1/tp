@@ -1,0 +1,49 @@
+@startuml
+hide footbox
+skinparam sequenceMessageAlign center
+
+participant "<<class>>\nProcessor" as Processor
+participant "<<class>>\nOrderHandlers" as Handlers
+participant "state:AppState" as State
+participant "history:OrderHistory" as History
+participant "order:Order" as Order
+
+[-> Processor : process(...)
+activate Processor
+note over Processor
+    APPROVE is an ANYWHERE
+    command: checkLocation
+    always passes.
+end note
+Processor -> Handlers : approve(c, state)
+activate Handlers
+Handlers -> State : getOrderHistory()
+activate State
+State --> Handlers : history
+deactivate State
+Handlers -> History : getOrders()
+activate History
+History --> Handlers : orders
+deactivate History
+note over Handlers, History
+    requireOrderAtIndex validates the
+    order number and selects order 1.
+end note
+
+Handlers -> Order : approve()
+activate Order
+note right of Order
+    WAITING_APPROVAL becomes
+    WAITING_FOR_DELIVERY.
+    Other states are rejected.
+end note
+Order --> Handlers : return
+deactivate Order
+note over Handlers, Order
+    Stock and the order's item are unchanged.
+end note
+Handlers --> Processor : success Result
+deactivate Handlers
+[<-- Processor : success Result
+deactivate Processor
+@enduml

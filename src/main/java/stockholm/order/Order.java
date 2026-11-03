@@ -1,0 +1,198 @@
+package stockholm.order;
+
+import java.time.Instant;
+import java.util.Objects;
+
+import stockholm.exceptions.StockHolmException;
+import stockholm.inventory.Item;
+
+/** An order's item and its current approval state; each kind of order is a subclass. */
+public abstract class Order {
+    private final Instant createdAt;
+    private Instant lastStatusChangedAt;
+    private String notes; // TODO: implement optional notes field
+    private OrderState state;
+    private final Item item;
+    private String src;
+    private String dst;
+    private String reason;
+
+    /** Creates an order awaiting approval for the given item. */
+    protected Order(Item item) {
+        this(item, OrderState.WAITING_APPROVAL, null, Instant.now());
+    }
+
+    /** Restores an order's recorded state and optional rejection reason. */
+    protected Order(Item item, OrderState state, String reason) {
+        this(item, state, reason, null, null);
+    }
+
+    /** Creates a new order with one timestamp for its creation and initial state. */
+    private Order(Item item, OrderState state, String reason, Instant createdAt) {
+        this(item, state, reason, createdAt, createdAt);
+    }
+
+    /** Restores saved timestamps without replaying any state transition; null means a legacy date is unknown. */
+    protected Order(Item item, OrderState state, String reason, Instant createdAt, Instant lastStatusChangedAt) {
+        if ((createdAt != null && lastStatusChangedAt == null)
+                || (createdAt != null && lastStatusChangedAt.isBefore(createdAt))) {
+            throw new IllegalArgumentException("Order timestamps must be in chronological order.");
+        }
+        this.state = Objects.requireNonNull(state);
+        this.item = Objects.requireNonNull(item);
+        this.reason = reason;
+        this.createdAt = createdAt;
+        this.lastStatusChangedAt = lastStatusChangedAt;
+    }
+
+    public OrderState getState() {
+        return state;
+    }
+
+    /** Returns when the order was created, or null if the saved order predates timestamps. */
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    /** Returns when the current state began, or null if the saved order predates timestamps. */
+    public Instant getLastStatusChangedAt() {
+        return lastStatusChangedAt;
+    }
+
+    /** Records a successful transition, keeping saved timestamps ordered if the system clock moves backwards. */
+    private void changeState(OrderState newState) {
+        state = newState;
+        Instant now = Instant.now();
+        if (lastStatusChangedAt != null && now.isBefore(lastStatusChangedAt)) {
+            now = lastStatusChangedAt;
+        } else if (createdAt != null && now.isBefore(createdAt)) {
+            now = createdAt;
+        }
+        lastStatusChangedAt = now;
+    }
+
+    public String getReason() {
+        return reason;
+    }
+
+    /** Returns whether the order can still change state: it is waiting for approval or for delivery. */
+    public boolean isOpen() {
+        return state == OrderState.WAITING_APPROVAL || state == OrderState.WAITING_FOR_DELIVERY;
+    }
+
+    /**
+     * Cancels an open order because its inventory was deleted. Unlike {@link #cancel}, this also closes an order
+     * awaiting approval. This only changes state; the Processor handles any stock refunds before calling it.
+     */
+    void cancelForDeletedInventory() {
+        assert isOpen() : "Only open orders are canceled when their inventory is deleted";
+        changeState(OrderState.CANCELED);
+    }
+
+    /** Approves an order only while it is waiting for approval. */
+    public void approve() throws StockHolmException {
+        if (state != OrderState.WAITING_APPROVAL) {
+            throw new StockHolmException("Order is not waiting for approval (current state: " + state + ").");
+        }
+        changeState(OrderState.WAITING_FOR_DELIVERY);
+    }
+
+    /**
+     * Throws if {@link #reject} would fail, without changing anything.
+     *
+     * @param reason why the order is being rejected
+     * @throws StockHolmException if the order is not waiting for approval or the reason is blank
+     */
+    public void checkCanReject(String reason) throws StockHolmException {
+        if (state != OrderState.WAITING_APPROVAL) {
+            throw new StockHolmException("Order is not waiting for approval (current state: " + state + ").");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw new StockHolmException("Rejection reason cannot be blank.");
+        }
+    }
+
+    /**
+     * Rejects an order with a reason only while it is waiting for approval.
+     *
+     * @param reason why the order was rejected
+     * @throws StockHolmException if the order is not waiting for approval or the reason is blank
+     */
+    public void reject(String reason) throws StockHolmException {
+        checkCanReject(reason);
+        this.reason = reason;
+        changeState(OrderState.REJECTED);
+    }
+
+    /**
+     * Throws if {@link #cancel} would fail, without changing anything.
+     *
+     * @throws StockHolmException if the order is not waiting for delivery
+     */
+    public void checkCanCancel() throws StockHolmException {
+        if (state != OrderState.WAITING_FOR_DELIVERY) {
+            throw new StockHolmException("Order cannot be canceled (current state: " + state + ").");
+        }
+    }
+
+    /**
+     * Cancels an approved order before it is delivered. An order awaiting approval is rejected instead.
+     *
+     * @throws StockHolmException if the order cannot be canceled
+     */
+    public void cancel() throws StockHolmException {
+        checkCanCancel();
+        changeState(OrderState.CANCELED);
+    }
+
+    /**
+     * Throws if {@link #deliver} would fail, without changing anything.
+     *
+     * @throws StockHolmException if the order is not waiting for delivery
+     */
+    public void checkCanDeliver() throws StockHolmException {
+        if (state != OrderState.WAITING_FOR_DELIVERY) {
+            throw new StockHolmException("Order is not waiting for delivery (current state: " + state + ").");
+        }
+    }
+
+    /** Marks an order as delivered only while it is waiting for delivery. */
+    public void deliver() throws StockHolmException {
+        checkCanDeliver();
+        changeState(OrderState.DELIVERED);
+    }
+
+    /**
+     * Returns what kind of order this is, as shown to the user.
+     *
+     * @return the label, e.g. {@code "Import order"}
+     */
+    public abstract String getKindLabel();
+
+    public Item getItem() {
+        return item;
+    }
+
+    public void setSrc(String srcInventory) {
+        src = srcInventory;
+    }
+
+    public void setDst(String dstInventory) {
+        dst = dstInventory;
+    }
+
+    public String getSrc() {
+        return src;
+    }
+
+    public String getDst() {
+        return dst;
+    }
+
+    /**
+     * Returns the name of the inventory that owns this order in the saved CSV.
+     *
+     * @return the destination of an import, or the source of an export or transfer
+     */
+    public abstract String getInventoryName();
+}

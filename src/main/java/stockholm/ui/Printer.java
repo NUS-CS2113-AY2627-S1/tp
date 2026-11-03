@@ -1,0 +1,68 @@
+package stockholm.ui;
+
+import stockholm.processor.Result;
+
+/**
+ * Writes all command output, errors and prompts to the screen; only the welcome and goodbye lines are printed by
+ * {@link Ui} directly. It decides how things look, but never what happened. That comes from the Processor's
+ * {@link Result}.
+ */
+public class Printer {
+    private static final int INDENT_LEVEL = 4;
+    private static final String BAR_CHARACTER = "─";
+    /** Bar width used when the terminal width can't be read from {@code $COLUMNS}. */
+    private static final int FALLBACK_BAR_LENGTH = 100;
+
+    /**
+     * Displays the outcome of a processed command. An empty message prints nothing.
+     *
+     * @param result the Processor's output
+     */
+    public static void printResult(Result result) {
+        if (!result.message().isEmpty()) {
+            printIndent(result.message());
+        }
+    }
+
+    /** Prints the input prompt without a trailing newline. */
+    public static void printPrompt() {
+        System.out.print("❯ ");
+    }
+
+    /**
+     * Prints the input prompt with the current inventory's name before the arrow,
+     * e.g. {@code Shop ❯ }, without a trailing newline.
+     *
+     * @param invName name of the inventory the user is inside
+     */
+    public static void printPrompt(String invName) {
+        System.out.print(invName + " ❯ ");
+    }
+
+    /**
+     * Prints `message` indented, one indent per line so multiline strings
+     * (e.g. the item list) stay aligned under the bar.
+     */
+    public static void printIndent(String message) {
+        String indentedMessage = " ".repeat(INDENT_LEVEL) + message;
+        indentedMessage = indentedMessage.replace("\n", "\n" + " ".repeat(INDENT_LEVEL));
+
+        System.out.println(indentedMessage);
+    }
+
+    public static void printBar() {
+        System.out.println(BAR_CHARACTER.repeat(getTerminalWidth()));
+    }
+
+    private static int getTerminalWidth() {
+        String columns = System.getenv("COLUMNS");
+        if (columns == null) {
+            return FALLBACK_BAR_LENGTH;
+        }
+        try {
+            return Integer.parseInt(columns.trim());
+        } catch (NumberFormatException e) {
+            return FALLBACK_BAR_LENGTH;
+        }
+    }
+}
