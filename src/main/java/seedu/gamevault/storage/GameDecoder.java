@@ -1,0 +1,328 @@
+package seedu.gamevault.storage;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
+import java.util.HashSet;
+import java.util.Optional;
+import java.util.Set;
+
+import seedu.gamevault.exception.GameVaultException;
+import seedu.gamevault.game.Borrower;
+import seedu.gamevault.game.Difficulty;
+import seedu.gamevault.game.Game;
+import seedu.gamevault.game.PlaySession;
+import seedu.gamevault.game.Tag;
+import seedu.gamevault.game.UnavailableReason;
+
+/**
+ * Converts one line of the data file back into a {@link Game}, checking that the line is valid.
+ *
+ * <p>Each line has the format {@code TITLE | MIN | MAX}, e.g. {@code Catan | 3 | 4}, optionally followed by
+ * {@code | TIME}, the play time in minutes, e.g. {@code Catan | 3 | 4 | 60}.
+ * Files saved before play time was added have no TIME field and still load.
+ * A game with tags has a fifth field, TAGS, holding comma-separated tags, e.g. {@code Catan | 3 | 4 | 60 | strategy}
+ * or {@code Codenames | 4 | 8 |  | party,word} (TIME is left blank when there is no play time).
+ * Any further data follows TAGS as named {@code KEY=VALUE} fields, in any order, e.g.
+ * {@code Catan | 3 | 4 | 60 |  | sessions=2026-06-01@3;2026-10-30@4}. Named fields let new kinds of data be
+ * added without breaking older data files: to store something new, add a named field in
+ * {@code Game#toFileString()} and a matching case in {@link #decodeNamedField}.
+ * The {@code sessions} field holds the play sessions, each written as {@code DATE@PLAYERS}
+ * (DATE in {@code YYYY-MM-DD} form) and separated by {@code ;}.
+ * The {@code unavailable} field holds why a game cannot be played at the moment, e.g. {@code unavailable=missing}.
+ * The {@code from} field holds who lent or gave the game to the user, e.g. {@code from=Bob}, and the optional
+ * {@code due} field holds when it must be given back, e.g. {@code due=2026-11-10}; {@code due} needs {@code from}.
+ * The {@code lent} field holds the name of the person the game is lent to, e.g. {@code lent=Alice}.
+ * The {@code ratings} field holds the thumbs-up and thumbs-down counts as {@code UP/DOWN}, e.g. {@code ratings=5/1}.
+ * Users may edit the data file by hand, so every part of the line is checked and a
+ * specific reason is given when something is wrong.</p>
+ */
+public class GameDecoder {
+    public static final String FORMAT = "TITLE | MIN | MAX | TIME | TAGS | KEY=VALUE..."
+            + " (everything after MAX is optional)";
+
+    private static final String FIELD_SEPARATOR_REGEX = "\\|";
+    private static final int FIELD_COUNT_WITHOUT_TIME = 3;
+    private static final int FIELD_COUNT_WITH_TIME = 4;
+    private static final int FIELD_COUNT_WITH_TAGS = 5;
+    private static final String KEY_VALUE_SEPARATOR = "=";
+    private static final String TAG_SEPARATOR = ",";
+    private static final int NO_PLAY_TIME = 0;
+    /** Invisible marker some editors (e.g. Windows Notepad) put at the start of a file. */
+    private static final String BYTE_ORDER_MARK = "﻿";
+
+    /**
+     * Returns the game described by one line of the data file.
+     *
+     * @param line A single line from the data file.
+     * @return The decoded game.
+     * @throws GameVaultException If the line is not in the expected format; the message says why.
+     */
+    public static Game decodeLine(String line) throws GameVaultException {
+        assert line != null : "Line to decode should not be null";
+
+        // A limit of -1 keeps empty trailing fields, so "Catan | 3 |" is reported as a missing MAX.
+        String[] fields = line.replace(BYTE_ORDER_MARK, "").split(FIELD_SEPARATOR_REGEX, -1);
+        if (fields.length < FIELD_COUNT_WITHOUT_TIME) {
+            throw new GameVaultException("expected at least " + FIELD_COUNT_WITHOUT_TIME
+                    + " parts in the format " + FORMAT + ", but found " + fields.length);
+        }
+
+        String title = fields[0].trim();
+        if (title.isEmpty()) {
+            throw new GameVaultException("TITLE is empty");
+        }
+        int minPlayers = parseNumber(fields[1], "MIN", 1);
+        int maxPlayers = parseNumber(fields[2], "MAX", 1);
+        if (maxPlayers < minPlayers) {
+            throw new GameVaultException("MAX (" + maxPlayers + ") is less than MIN (" + minPlayers + ")");
+        }
+        int playTime = decodePlayTime(fields);
+        Game game = new Game(title, minPlayers, maxPlayers, playTime);
+        decodeTags(fields, game);
+        decodeNamedFields(fields, game);
+        //@@author KRAZYZECTRON
+        // Named fields can come in any order, so 'due' can only be checked against 'from' once all are read.
+        if (game.getDueBack().isPresent() && !game.hasLender()) {
+            throw new GameVaultException("the field '" + Game.DUE_BACK_FILE_KEY + "' needs a '"
+                    + Game.LENDER_FILE_KEY + "' field saying who the game is from");
+        }
+        //@@author
+        return game;
+    }
+
+    //@@author Xandurs
+    /**
+     * Reads the named {@code KEY=VALUE} fields that come after TAGS, if any, into the game.
+     * Keys are case-insensitive. An unknown or repeated key makes the line invalid, so that a typo in a
+     * hand-edited file is reported instead of the data being silently dropped.
+     *
+     * @throws GameVaultException If a field is not in {@code KEY=VALUE} form, its key is unknown or repeated,
+     *     or its value is invalid.
+     */
+    private static void decodeNamedFields(String[] fields, Game game) throws GameVaultException {
+        Set<String> seenKeys = new HashSet<>();
+        for (int i = FIELD_COUNT_WITH_TAGS; i < fields.length; i++) {
+            String field = fields[i].trim();
+            int separatorIndex = field.indexOf(KEY_VALUE_SEPARATOR);
+            if (separatorIndex <= 0) {
+                throw new GameVaultException("expected a KEY=VALUE field after TAGS, but found '" + field + "'");
+            }
+            String key = field.substring(0, separatorIndex).trim().toLowerCase();
+            String value = field.substring(separatorIndex + 1).trim();
+            if (!seenKeys.add(key)) {
+                throw new GameVaultException("the field '" + key + "' appears more than once");
+            }
+            decodeNamedField(key, value, game);
+        }
+    }
+
+    /**
+     * Reads one named field into the game. Add a case here for each new kind of named field.
+     *
+     * @param key Lower-case name of the field, e.g. {@code sessions}.
+     * @param value Text after the {@code =}, already trimmed.
+     * @throws GameVaultException If the key is unknown or the value is invalid.
+     */
+    private static void decodeNamedField(String key, String value, Game game) throws GameVaultException {
+        switch (key) {
+        case Game.SESSIONS_FILE_KEY:
+            decodeSessions(value, game);
+            break;
+        case Game.UNAVAILABLE_FILE_KEY:
+            decodeUnavailableReason(value, game);
+            break;
+        case Game.LENDER_FILE_KEY:
+            decodeLender(value, game);
+            break;
+        case Game.DUE_BACK_FILE_KEY:
+            decodeDueBack(value, game);
+            break;
+        case Game.LENT_FILE_KEY:
+            decodeBorrower(value, game);
+            break;
+        case Game.DIFFICULTY_FILE_KEY:
+            decodeDifficulty(value, game);
+            break;
+        case Game.RATINGS_FILE_KEY:
+            decodeRatings(value, game);
+            break;
+        default:
+            throw new GameVaultException("unknown field '" + key + "'");
+        }
+    }
+
+    /**
+     * Adds the sessions in a {@code sessions} field, e.g. {@code 2026-06-01@3;2026-10-30@4}, to the game.
+     * Blank entries (e.g. from a trailing {@code ;}) are ignored. Dates in the future are accepted here,
+     * unlike in the {@code log} command, so that a wrong computer clock cannot make saved history vanish.
+     *
+     * @throws GameVaultException If a session is not in the form {@code YYYY-MM-DD@PLAYERS}.
+     */
+    private static void decodeSessions(String value, Game game) throws GameVaultException {
+        for (String text : value.split(Game.SESSION_FILE_SEPARATOR)) {
+            String sessionText = text.trim();
+            if (sessionText.isEmpty()) {
+                continue;
+            }
+            String[] parts = sessionText.split(PlaySession.FILE_SEPARATOR, -1);
+            if (parts.length != 2) {
+                throw new GameVaultException("session '" + sessionText + "' should be in the form "
+                        + "YYYY-MM-DD" + PlaySession.FILE_SEPARATOR + "PLAYERS");
+            }
+            LocalDate date;
+            try {
+                date = LocalDate.parse(parts[0].trim());
+            } catch (DateTimeParseException e) {
+                throw new GameVaultException("session '" + sessionText + "' has an invalid date; "
+                        + "use the form YYYY-MM-DD");
+            }
+            int playerCount = parseNumber(parts[1], "PLAYERS in session '" + sessionText + "'", 1);
+            game.addSession(new PlaySession(date, playerCount));
+        }
+    }
+    //@@author yy261
+    /**
+     * Sets the game's difficulty to the level in a {@code difficulty} field, e.g. {@code easy}.
+     *
+     * @throws GameVaultException If the value is not one of the {@link Difficulty} keywords.
+     */
+    private static void decodeDifficulty(String value, Game game) throws GameVaultException {
+        Optional<Difficulty> difficulty = Difficulty.fromKeyword(value);
+        if (difficulty.isEmpty()) {
+            throw new GameVaultException("difficulty is '" + value + "', but should be "
+                    + Difficulty.KEYWORDS_IN_WORDS);
+        }
+        game.setDifficulty(difficulty.get());
+    }
+
+    /**
+     * Marks the game as lent to the person named in a {@code lent} field, e.g. {@code lent=Alice}.
+     *
+     * @throws GameVaultException If the name does not follow {@link Borrower#RULES}.
+     */
+    private static void decodeBorrower(String value, Game game) throws GameVaultException {
+        String name = Borrower.normalise(value);
+        if (!Borrower.isValid(name)) {
+            throw new GameVaultException("lent is '" + name + "', but a name should be " + Borrower.RULES);
+        }
+        game.lendTo(name);
+    }
+
+    //@@author MohamedFarsat
+    /**
+     * Sets the game's thumbs-up and thumbs-down counts from a {@code ratings} field, e.g. {@code ratings=5/1}.
+     *
+     * @throws GameVaultException If the value is not two whole numbers of at least 0 separated by {@code /}.
+     */
+    private static void decodeRatings(String value, Game game) throws GameVaultException {
+        String[] parts = value.split(Game.RATINGS_FILE_SEPARATOR, -1);
+        if (parts.length != 2) {
+            throw new GameVaultException("ratings '" + value + "' should be in the form UP"
+                    + Game.RATINGS_FILE_SEPARATOR + "DOWN, e.g. 5" + Game.RATINGS_FILE_SEPARATOR + "1");
+        }
+        // A count may be 0, e.g. for a game that has never had a thumbs down.
+        int thumbsUp = parseNumber(parts[0], "UP in ratings", 0);
+        int thumbsDown = parseNumber(parts[1], "DOWN in ratings", 0);
+        game.setRatings(thumbsUp, thumbsDown);
+    }
+
+    //@@author KRAZYZECTRON
+    /**
+     * Marks the game unavailable for the reason in an {@code unavailable} field, e.g. {@code missing}.
+     *
+     * @throws GameVaultException If the value is not one of the {@link UnavailableReason} keywords.
+     */
+    private static void decodeUnavailableReason(String value, Game game) throws GameVaultException {
+        Optional<UnavailableReason> reason = UnavailableReason.fromKeyword(value);
+        if (reason.isEmpty()) {
+            throw new GameVaultException("unavailable reason '" + value + "' should be "
+                    + UnavailableReason.describeKeywords());
+        }
+        game.markUnavailable(reason.get());
+    }
+
+    /**
+     * Records who the game is from, as named in a {@code from} field, e.g. {@code from=Bob}.
+     * Any due-back date already read from a {@code due} field is kept.
+     *
+     * @throws GameVaultException If the name does not follow {@link Borrower#RULES}.
+     */
+    private static void decodeLender(String value, Game game) throws GameVaultException {
+        String name = Borrower.normalise(value);
+        if (!Borrower.isValid(name)) {
+            throw new GameVaultException("from is '" + name + "', but a name should be " + Borrower.RULES);
+        }
+        game.recordLender(name, game.getDueBack().orElse(null));
+    }
+
+    /**
+     * Sets the due-back date in a {@code due} field, e.g. {@code due=2026-11-10}. Past dates are accepted,
+     * since a game that was not given back on time is simply overdue.
+     *
+     * @throws GameVaultException If the date is not a real date in the form {@code YYYY-MM-DD}.
+     */
+    private static void decodeDueBack(String value, Game game) throws GameVaultException {
+        try {
+            game.setDueBack(LocalDate.parse(value));
+        } catch (DateTimeParseException e) {
+            throw new GameVaultException("due is '" + value + "', but it should be a date in the form YYYY-MM-DD");
+        }
+    }
+
+    /**
+     * Adds the tags in the TAGS field, if the line has one, to the game.
+     * Blank entries (e.g. from a trailing comma) are ignored, and a tag listed twice is only added once,
+     * since neither loses any information. A tag that breaks the rules makes the whole line invalid.
+     *
+     * @throws GameVaultException If a tag does not follow {@link Tag#RULES}.
+     */
+    private static void decodeTags(String[] fields, Game game) throws GameVaultException {
+        if (fields.length < FIELD_COUNT_WITH_TAGS) {
+            return;
+        }
+        for (String text : fields[FIELD_COUNT_WITH_TAGS - 1].split(TAG_SEPARATOR)) {
+            String tag = Tag.normalise(text);
+            if (tag.isEmpty() || game.hasTag(tag)) {
+                continue;
+            }
+            if (!Tag.isValid(tag)) {
+                throw new GameVaultException("TAGS contains '" + text.trim() + "', but each tag should be "
+                        + Tag.RULES);
+            }
+            game.addTag(tag);
+        }
+    }
+
+    //@@author yy261
+    /**
+     * Returns the play time in the TIME field, or 0 if the line has no TIME field or it is left empty.
+     */
+    private static int decodePlayTime(String[] fields) throws GameVaultException {
+        if (fields.length < FIELD_COUNT_WITH_TIME || fields[FIELD_COUNT_WITH_TIME - 1].isBlank()) {
+            return NO_PLAY_TIME;
+        }
+        return parseNumber(fields[FIELD_COUNT_WITH_TIME - 1], "TIME", 1);
+    }
+
+    //@@author
+    /**
+     * Returns the whole number in {@code text}, such as a player count, a play time or a rating count.
+     *
+     * @param fieldName Name of the field, used in the error message.
+     * @param minimum Smallest value allowed, e.g. 1 for a player count or 0 for a rating count.
+     * @throws GameVaultException If the text is not a whole number, or is less than {@code minimum}.
+     */
+    private static int parseNumber(String text, String fieldName, int minimum) throws GameVaultException {
+        String trimmedText = text.trim();
+        int number;
+        try {
+            number = Integer.parseInt(trimmedText);
+        } catch (NumberFormatException e) {
+            throw new GameVaultException(fieldName + " should be a whole number, but was '" + trimmedText + "'");
+        }
+        if (number < minimum) {
+            throw new GameVaultException(fieldName + " should be at least " + minimum + ", but was " + number);
+        }
+        return number;
+    }
+}

@@ -1,0 +1,183 @@
+package seedu.gamevault.command;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import seedu.gamevault.exception.GameVaultException;
+import seedu.gamevault.game.Difficulty;
+import seedu.gamevault.game.Game;
+import seedu.gamevault.game.GameList;
+import seedu.gamevault.storage.Storage;
+import seedu.gamevault.ui.Ui;
+
+/**
+ * Tests for the edit command.
+ */
+class EditCommandTest {
+    @TempDir
+    Path tempDir;
+
+    private ByteArrayOutputStream output;
+    private Ui ui;
+    private Path dataFile;
+    private Storage storage;
+    private GameList games;
+
+    @BeforeEach
+    void setUp() {
+        output = new ByteArrayOutputStream();
+        ui = new Ui(new ByteArrayInputStream(new byte[0]), new PrintStream(output));
+        dataFile = tempDir.resolve("games.txt");
+        storage = new Storage(dataFile.toString());
+        games = new GameList();
+        games.add(new Game("Catan", 3, 4));
+        games.add(new Game("Chess", 2, 2));
+    }
+
+    @Test
+    void execute_titleOnly_changesTitleAndKeepsPlayerRange() throws GameVaultException {
+        new EditCommand(1, "Catan Deluxe", null, null).execute(games, ui, storage);
+
+        Game edited = games.getGames().get(0);
+        assertEquals("Catan Deluxe", edited.getTitle());
+        assertEquals(3, edited.getMinPlayers());
+        assertEquals(4, edited.getMaxPlayers());
+        assertTrue(output.toString().contains("Now: Catan Deluxe (3-4 players)"));
+    }
+
+    @Test
+    void execute_allFields_changesEverythingAndKeepsPosition() throws GameVaultException {
+        new EditCommand(1, "Wingspan", 1, 5).execute(games, ui, storage);
+
+        assertEquals(2, games.size());
+        assertEquals("Wingspan (1-5 players)", games.getGames().get(0).toString());
+        assertEquals("Chess", games.getGames().get(1).getTitle());
+    }
+
+    @Test
+    void execute_validEdit_savesToDataFile() throws GameVaultException, IOException {
+        new EditCommand(2, null, null, 3).execute(games, ui, storage);
+
+        assertEquals(List.of("Catan | 3 | 4", "Chess | 2 | 3"),
+                Files.readAllLines(dataFile, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void execute_minAboveExistingMax_throwsExceptionAndKeepsGame() {
+        GameVaultException e = assertThrows(GameVaultException.class, () ->
+                new EditCommand(1, null, 5, null).execute(games, ui, storage));
+
+        assertTrue(e.getMessage().startsWith("MAX (4) cannot be less than MIN (5)."));
+        assertEquals("Catan (3-4 players)", games.getGames().get(0).toString());
+        assertFalse(Files.exists(dataFile));
+    }
+
+    @Test
+    void execute_maxBelowExistingMin_throwsException() {
+        assertThrows(GameVaultException.class, () ->
+                new EditCommand(1, null, null, 2).execute(games, ui, storage));
+    }
+
+    @Test
+    void execute_numberPastEndOfList_throwsException() {
+        GameVaultException e = assertThrows(GameVaultException.class, () ->
+                new EditCommand(3, "X", null, null).execute(games, ui, storage));
+
+        assertEquals(DeleteCommand.getNoSuchGameMessage("3"), e.getMessage());
+    }
+
+    @Test
+    void isExit_returnsFalse() {
+        assertFalse(new EditCommand(1, "X", null, null).isExit());
+    }
+
+    @Test
+    void execute_gameWithPlayTime_keepsPlayTime() throws GameVaultException {
+        games.add(new Game("Azul", 2, 4, 45));
+
+        new EditCommand(3, "Azul Summer", null, null).execute(games, ui, storage);
+
+        assertEquals("Azul Summer (2-4 players, 45 min)", games.getGames().get(2).toString());
+    }
+
+    //@@author KRAZYZECTRON
+    @Test
+    void execute_gameWithTags_keepsTags() throws GameVaultException {
+        games.get(0).addTag("strategy");
+
+        new EditCommand(1, null, null, 6).execute(games, ui, storage);
+
+        assertEquals("Catan (3-6 players) [strategy]", games.get(0).toString());
+    }
+
+    //@@author yy261
+    @Test
+    void execute_lentGame_staysLentToSamePerson() throws GameVaultException {
+        games.get(0).lendTo("Alice");
+
+        new EditCommand(1, "Catan: Seafarers", null, null).execute(games, ui, storage);
+
+        assertTrue(games.get(0).isLent());
+        assertEquals("Alice", games.get(0).getBorrower());
+        assertEquals("Catan: Seafarers (3-4 players) (lent to Alice)", games.get(0).toString());
+    }
+
+    @Test
+    void execute_newDifficulty_setsItAndSaves() throws GameVaultException, IOException {
+        new EditCommand(1, null, null, null, null, Difficulty.HARD, false).execute(games, ui, storage);
+
+        assertEquals(Difficulty.HARD, games.get(0).getDifficulty());
+        assertEquals("Catan | 3 | 4 |  |  | difficulty=hard",
+                Files.readAllLines(dataFile, StandardCharsets.UTF_8).get(0));
+    }
+
+    @Test
+    void execute_difficultyNotGiven_keepsIt() throws GameVaultException {
+        games.get(0).setDifficulty(Difficulty.EASY);
+
+        new EditCommand(1, "Catan Deluxe", null, null).execute(games, ui, storage);
+
+        assertEquals(Difficulty.EASY, games.get(0).getDifficulty());
+    }
+
+    @Test
+    void execute_clearDifficulty_removesIt() throws GameVaultException {
+        games.get(0).setDifficulty(Difficulty.EASY);
+
+        new EditCommand(1, null, null, null, null, null, true).execute(games, ui, storage);
+
+        assertFalse(games.get(0).hasDifficulty());
+    }
+
+    @Test
+    void execute_clearDifficultyGameDoesNotHave_throwsException() {
+        GameVaultException e = assertThrows(GameVaultException.class,
+                () -> new EditCommand(1, null, null, null, null, null, true).execute(games, ui, storage));
+
+        assertTrue(e.getMessage().startsWith("This game has no difficulty to remove."));
+    }
+
+    @Test
+    void execute_sameDifficulty_reportsNoChanges() throws GameVaultException {
+        games.get(0).setDifficulty(Difficulty.EASY);
+
+        new EditCommand(1, null, null, null, null, Difficulty.EASY, false).execute(games, ui, storage);
+
+        assertTrue(output.toString().contains("No changes made"));
+    }
+}

@@ -1,0 +1,184 @@
+package seedu.gamevault.command;
+
+import java.util.ArrayList;
+import java.util.Random;
+
+import seedu.gamevault.game.Difficulty;
+import seedu.gamevault.game.Game;
+import seedu.gamevault.game.GameList;
+import seedu.gamevault.storage.Storage;
+import seedu.gamevault.ui.Ui;
+
+/**
+ * Picks one random game that can be played by a given number of players, optionally within a time limit,
+ * so the group does not have to spend time deciding what to play.
+ * The arguments are validated by {@link seedu.gamevault.parser.Parser} before this command is created.
+ */
+public class PickCommand extends Command {
+    public static final String COMMAND_WORD = "pick";
+    public static final String USAGE = "pick COUNT [/time MINUTES] [/diff LEVEL]";
+
+    /** Value of {@code minutes} when the user did not give a time limit. */
+    private static final int NO_TIME_LIMIT = GameList.NO_TIME_LIMIT;
+
+    private final int playerCount;
+    private final int minutes;
+    /** Level the game must be at, or null for any level. */
+    private final Difficulty difficulty;
+    /** Source of randomness; passed in so tests can control which game is picked. */
+    private final Random random;
+
+    /**
+     * Creates a command that picks a random game fitting the given number of players, however long it takes.
+     *
+     * @param playerCount Number of players tonight; already checked to be at least 1.
+     */
+    public PickCommand(int playerCount) {
+        this(playerCount, NO_TIME_LIMIT);
+    }
+
+    /**
+     * Creates a command that picks a random game fitting the given number of players
+     * that takes at most the given number of minutes.
+     *
+     * @param playerCount Number of players tonight; already checked to be at least 1.
+     * @param minutes Time available in minutes; already checked to be at least 1, or 0 for no limit.
+     */
+    public PickCommand(int playerCount, int minutes) {
+        this(playerCount, minutes, (Difficulty) null);
+    }
+
+    /**
+     * Creates a command that picks a random game fitting the given number of players, time limit and level.
+     *
+     * @param playerCount Number of players tonight; already checked to be at least 1.
+     * @param minutes Time available in minutes; already checked to be at least 1, or 0 for no limit.
+     * @param difficulty Level the game must be at, or null for any level.
+     */
+    public PickCommand(int playerCount, int minutes, Difficulty difficulty) {
+        this(playerCount, minutes, difficulty, new Random());
+    }
+
+    /**
+     * Creates a command that uses the given {@link Random}, so tests can make the pick predictable.
+     *
+     * @param playerCount Number of players tonight; already checked to be at least 1.
+     * @param minutes Time available in minutes, or 0 for no limit.
+     * @param random Source of randomness used to choose the game.
+     */
+    PickCommand(int playerCount, int minutes, Random random) {
+        this(playerCount, minutes, null, random);
+    }
+
+    /**
+     * Creates a command for a given level that uses the given {@link Random}, for the same reason.
+     *
+     * @param playerCount Number of players tonight; already checked to be at least 1.
+     * @param minutes Time available in minutes, or 0 for no limit.
+     * @param difficulty Level the game must be at, or null for any level.
+     * @param random Source of randomness used to choose the game.
+     */
+    PickCommand(int playerCount, int minutes, Difficulty difficulty, Random random) {
+        assert playerCount >= 1 : "Player count should be at least 1";
+        assert minutes >= NO_TIME_LIMIT : "Time available should not be negative";
+        assert random != null : "Random should not be null";
+        this.playerCount = playerCount;
+        this.minutes = minutes;
+        this.difficulty = difficulty;
+        this.random = random;
+    }
+
+    @Override
+    public void execute(GameList games, Ui ui, Storage storage) {
+        boolean hasTimeLimit = minutes != NO_TIME_LIMIT;
+        ArrayList<Game> matches = games.filterAvailable(playerCount, minutes, difficulty);
+        String criteria = describeCriteria(playerCount, minutes)
+                + (difficulty == null ? "" : " at " + difficulty.describe());
+
+        StringBuilder message = new StringBuilder();
+        if (matches.isEmpty()) {
+            message.append(getNoMatchMessage(criteria));
+        } else {
+            Game pickedGame = chooseWeighted(matches);
+            message.append("How about: ").append(pickedGame).append(System.lineSeparator())
+                    .append("(picked from ").append(matches.size()).append(" game(s) that fit ")
+                    .append(criteria).append(")");
+            if (hasWeightedGame(matches)) {
+                message.append(System.lineSeparator())
+                        .append("(Games rated up were more likely to be picked, and games rated down less likely.)");
+            }
+        }
+
+        // Like filter, explain games left out only because they have no play time recorded.
+        int untimedCount = hasTimeLimit ? games.countWithoutPlayTime(playerCount, difficulty) : 0;
+        if (untimedCount > 0) {
+            message.append(System.lineSeparator())
+                    .append("(").append(untimedCount).append(" game(s) for ").append(playerCount)
+                    .append(" players were not considered because they have no play time recorded.)");
+        }
+        //@@author yy261
+        if (difficulty != null) {
+            message.append(games.describeNoDifficulty(playerCount, minutes, "not considered"));
+        }
+        message.append(games.describeLeftOut(playerCount, minutes, difficulty, "considered"));
+        //@@author
+        ui.showMessage(message.toString());
+    }
+
+    //@@author MohamedFarsat
+    /**
+     * Returns one of the matches at random, where each game's chance is proportional to its
+     * {@link Game#getPickWeight()}, so games the group rated up come up more often.
+     * Think of the weights as lengths laid end to end: a random point along the total length
+     * lands inside one game's length, and longer lengths are more likely to be hit.
+     *
+     * @param matches Games to choose from; must not be empty.
+     */
+    private Game chooseWeighted(ArrayList<Game> matches) {
+        assert !matches.isEmpty() : "There should be at least one game to choose from";
+        double totalWeight = 0;
+        for (Game game : matches) {
+            totalWeight += game.getPickWeight();
+        }
+
+        double point = random.nextDouble() * totalWeight;
+        for (Game game : matches) {
+            point -= game.getPickWeight();
+            if (point < 0) {
+                return game;
+            }
+        }
+        // Rounding errors can leave the point just past the end, in which case it belongs to the last game.
+        return matches.get(matches.size() - 1);
+    }
+
+    /**
+     * Returns whether the ratings changed any game's chance of being picked, i.e. some match has a weight other
+     * than 1. A game rated e.g. +2/-2 is rated but still has weight 1, so on its own it does not count.
+     * Comparing doubles with {@code !=} is safe here, as equal counts always give exactly 1.0.
+     */
+    private static boolean hasWeightedGame(ArrayList<Game> matches) {
+        for (Game game : matches) {
+            if (game.getPickWeight() != 1.0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    //@@author
+
+    /**
+     * Returns a description of what the picked game must fit, e.g. {@code 4 players in 45 minutes or less}.
+     *
+     * @param minutes Time available in minutes, or 0 for no limit.
+     */
+    static String describeCriteria(int playerCount, int minutes) {
+        String criteria = playerCount + " players";
+        return minutes == NO_TIME_LIMIT ? criteria : criteria + " in " + minutes + " minutes or less";
+    }
+
+    static String getNoMatchMessage(String criteria) {
+        return "No games fit " + criteria + ", so there is nothing to pick from.";
+    }
+}
