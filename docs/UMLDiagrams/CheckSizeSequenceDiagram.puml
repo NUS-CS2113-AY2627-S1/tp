@@ -1,0 +1,53 @@
+@startuml
+scale 2
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+participant ":SizeCommand" as Size
+participant "maximumByVenue:Map<String, Integer>" as Maxima
+participant ":BookingList" as Bookings
+participant ":Booking" as Booking
+
+User -> UI: processCommand("checksize")
+activate UI
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "checksize"
+deactivate Parser
+
+create Size
+UI -> Size: new SizeCommand()
+UI -> Size: execute(bookings, userInput)
+activate Size
+
+Size -> Bookings: size()
+activate Bookings
+Bookings --> Size: bookingCount
+deactivate Bookings
+
+loop for each booking in the list
+    Size -> Bookings: get(index)
+    activate Bookings
+    Bookings --> Size: booking
+    deactivate Bookings
+    Size -> Booking: getAttendeeCount()
+    activate Booking
+    Booking --> Size: attendeeCount or null
+    deactivate Booking
+    opt attendeeCount is known
+        Size -> Booking: getVenue()
+        activate Booking
+        Booking --> Size: venue
+        deactivate Booking
+        Size -> Maxima: merge(venue, attendeeCount, Math::max)
+    end
+end
+
+note right of Size: Print maximum attendee count for each venue
+Size --> UI
+deactivate Size
+deactivate UI
+@enduml

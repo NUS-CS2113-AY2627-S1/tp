@@ -1,0 +1,472 @@
+package ui;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import exceptions.InvalidCommandException;
+import tasks.Booking;
+import tasks.VenueCatalog;
+import command.SortOrder;
+
+/**
+ * Interprets command text without printing or changing the booking list.
+ * @author Maxkedd
+ */
+public class Parser {
+    /** Recognises a venue followed by the date whose available slots should be listed. */
+    private static final Pattern FREE_VENUE_PATTERN = Pattern.compile(
+            "^v/(.+?)\\s+d/(\\d{2}/\\d{2}/\\d{4})$");
+
+    private static final Pattern TRAILING_ATTENDEE_FIELD =
+            Pattern.compile("(?s)^(.*?)[\\p{javaWhitespace}]+a/([^\\p{javaWhitespace}]*)\\s*$");
+
+    /**
+     * Splits once so spaces within booking fields are preserved.
+     * @author Maxkedd
+     */
+    private String[] separateInput(String input) {
+        input = input.replace("\t", " ");
+        return input.strip().split("\\p{javaWhitespace}+", 2);
+    }
+
+    /**
+     * Parse command in lowercase and catch unknown commands.
+     * @author Maxkedd
+     * @author Maxkedd
+     */
+    public String parseCommand(String input) {
+        String originalCommand = separateInput(input)[0];
+        String command = originalCommand.toLowerCase(Locale.ROOT);
+        if (command.equals("editbooking")) {
+            return command;
+        }
+        switch (command) {
+        case "book", "cancel", "list", "bye", "find", "viewbooking", "calendar", "/undo", "/redo", "checksize", "free":
+            return command;
+        default:
+            throw new InvalidCommandException(originalCommand + " is not a valid command! -_-");
+        }
+    }
+
+    /**
+     * Creates a named exam or lecture booking in the order r/, n/, v/, t/.
+     * Field values are kept as text, so names, venues, and timings may contain spaces.
+     * @author Maxkedd
+     */
+    public Booking parseBooking(String input) {
+        assert input != null : "Booking command input must not be null";
+        String command = parseCommand(input);
+        String[] separatedInput = separateInput(input);
+        if (!command.equals("book") || separatedInput.length < 2) {
+            throw new InvalidCommandException("Please use: book r/BOOKING_REASON n/BOOKING_NAME v/VENUE t/TIMING");
+        }
+
+        // The required fields stay in order; the optional attendee count follows the timing.
+        String[] fields = separatedInput[1].strip().split("\\p{javaWhitespace}+(?=[rntv]/)");
+        if (fields.length != 4 || !fields[0].startsWith("r/")
+                || !fields[1].startsWith("n/") || !fields[2].startsWith("v/")
+                || !fields[3].startsWith("t/")) {
+            throw new InvalidCommandException("Please use: book r/BOOKING_REASON n/BOOKING_NAME v/VENUE t/TIMING"
+                    + " [a/ATTENDEES]");
+        }
+
+        String reason = fields[0].substring(2).strip().toLowerCase(Locale.ROOT);
+        String name = fields[1].substring(2).strip();
+        String venue = fields[2].substring(2).strip();
+        AttendeeSuffix timingAndAttendees = extractTrailingAttendeeField(fields[3].substring(2).strip());
+        String timing = timingAndAttendees.fields();
+        Integer attendeeCount = timingAndAttendees.attendeeCount();
+        if (!reason.equals("exam") && !reason.equals("lecture")) {
+            throw new InvalidCommandException("Booking reason must be exam or lecture.");
+        }
+        if (name.isBlank() || venue.isBlank() || timing.isBlank()) {
+            throw new InvalidCommandException("Booking name, venue and timing must not be empty.");
+        }
+        try {
+            Booking.parseStartTime(timing);
+        } catch (DateTimeParseException e) {
+            throw new InvalidCommandException(
+                    "Timing must use dd/MM/yyyy HH:mm, for example 05/10/2026 14:00.");
+        }
+        return new Booking(reason, name, venue, timing, attendeeCount);
+    }
+
+    /**
+     * Applies supplied edit fields to a copy of the original booking, keeping omitted fields unchanged.
+     * The r/, n/, v/, and t/ fields may appear in any order, but only once each. Optional a/ATTENDEES goes last.
+     * @author produdepunk
+     * @param original booking being edited
+     * @param input one or more r/, n/, v/, t/, or a/ fields
+     * @return a validated replacement, without changing the original
+     */
+    public Booking parseEditedBooking(Booking original, String input) {
+        assert original != null : "Editing requires an original booking";
+        assert input != null : "Edit fields must not be null";
+        String reason = original.getReason();
+        String name = original.getName();
+        String venue = original.getVenue();
+        String timing = original.getTiming();
+        AttendeeSuffix editedFields = extractTrailingAttendeeField(input);
+        Integer attendeeCount = editedFields.attendeeCount() == null
+                ? original.getAttendeeCount() : editedFields.attendeeCount();
+        String seenPrefixes = "";
+        String[] fields = editedFields.fields().strip().split("\\p{javaWhitespace}+(?=[rnvt]/)");
+        for (String field : fields) {
+            if (field.length() < 2 || field.charAt(1) != '/' || "rnvt".indexOf(field.charAt(0)) < 0) {
+                throw new InvalidCommandException("Enter changes using r/REASON n/NAME v/VENUE t/TIMING"
+                        + " and optional a/ATTENDEES at the end."
+                        + " Omit fields to keep them, or type abort.");
+            }
+            String prefix = field.substring(0, 1);
+            if (seenPrefixes.contains(prefix)) {
+                throw new InvalidCommandException("Each edit field may only be specified once.");
+            }
+            seenPrefixes += prefix;
+            String value = field.substring(2).strip();
+            switch (prefix) {
+            case "r":
+                reason = value.toLowerCase(Locale.ROOT);
+                break;
+            case "n":
+                name = value;
+                break;
+            case "v":
+                venue = value;
+                break;
+            case "t":
+                timing = value;
+                break;
+            default:
+                throw new AssertionError("Edit prefix must already be validated");
+            }
+        }
+        return createValidatedEditedBooking(reason, name, venue, timing, attendeeCount);
+    }
+
+    /**
+     * Validates edited booking fields while leaving the original booking parser intact.
+     * @author produdepunk
+     */
+    private Booking createValidatedEditedBooking(String reason, String name, String venue, String timing,
+            Integer attendeeCount) {
+        if (!reason.equals("exam") && !reason.equals("lecture")) {
+            throw new InvalidCommandException("Booking reason must be exam or lecture.");
+        }
+        if (name.isBlank() || venue.isBlank() || timing.isBlank()) {
+            throw new InvalidCommandException("Booking name, venue and timing must not be empty.");
+        }
+        try {
+            Booking.parseStartTime(timing);
+        } catch (DateTimeParseException e) {
+            throw new InvalidCommandException(
+                    "Timing must use dd/MM/yyyy HH:mm, for example 05/10/2026 14:00.");
+        }
+        return new Booking(reason, name, venue, timing, attendeeCount);
+    }
+
+    /**
+     * Parses a positive attendee count and reports a user-facing error for invalid values.
+     * @author produdepunk
+     */
+    private Integer parsePositiveAttendeeCount(String value) {
+        try {
+            int count = Integer.parseInt(value);
+            if (count > 0) {
+                return count;
+            }
+        } catch (NumberFormatException e) {
+            throw new InvalidCommandException("Attendee count must be a positive whole number.");
+        }
+        throw new InvalidCommandException("Attendee count must be a positive whole number.");
+    }
+
+    /**
+     * Extracts a trailing attendee field without treating a/ inside a name as a field prefix.
+     */
+    private AttendeeSuffix extractTrailingAttendeeField(String input) {
+        Matcher matcher = TRAILING_ATTENDEE_FIELD.matcher(input);
+        if (!matcher.matches()) {
+            return new AttendeeSuffix(input.strip(), null);
+        }
+        return new AttendeeSuffix(matcher.group(1).stripTrailing(),
+                parsePositiveAttendeeCount(matcher.group(2).strip()));
+    }
+
+    /**
+     * Holds ordinary booking fields and an optional attendee count suffix.
+     */
+    private record AttendeeSuffix(String fields, Integer attendeeCount) {
+    }
+
+    /**
+     * Extracts the full booking name to edit; partial-name searches are not accepted.
+     * @author produdepunk
+     */
+    public String parseEdit(String input) {
+        assert input != null : "Edit command input must not be null";
+        String[] separatedInput = separateInput(input);
+        if (!parseCommand(input).equals("editbooking") || separatedInput.length < 2
+                || !separatedInput[1].strip().startsWith("n/")) {
+            throw new InvalidCommandException("Please use: editbooking n/BOOKING_NAME");
+        }
+        String name = separatedInput[1].strip().substring(2).strip();
+        if (name.isBlank()) {
+            throw new InvalidCommandException("Booking name must not be empty.");
+        }
+        return name;
+    }
+
+    /**
+     * Extracts the booking name from a command in the form: cancel n/BOOKING_NAME.
+     * The name is kept as text, so it may contain spaces.
+     * @author Pratham-tech
+     * @param input whole command string entered by the user, never null
+     * @return the booking name to cancel
+     * @throws InvalidCommandException if the command is not a valid cancel command
+     */
+    public String parseCancel(String input) {
+        assert input != null : "Cancel command input must not be null";
+        String command = parseCommand(input);
+        String[] separatedInput = separateInput(input);
+        if (!command.equals("cancel") || separatedInput.length < 2
+                || !separatedInput[1].strip().startsWith("n/")) {
+            throw new InvalidCommandException("Please use: cancel n/BOOKING_NAME");
+        }
+
+        String name = separatedInput[1].strip().substring(2).strip();
+        if (name.isBlank()) {
+            throw new InvalidCommandException("Booking name must not be empty.");
+        }
+        return name;
+    }
+
+    /**
+     * Parses a view command into 3 separate cases,
+     * View lectures and exams, view lectures only and view exams only
+     * View the specified lectures or exams by alphabetical order or time order
+     * @author Kytersaurus
+     * @param input whole string parsed by program
+     */
+    public ListOptions parseViewList(String input) {
+        String command = parseCommand(input);
+
+        if (!command.equals("list")) {
+            throw new InvalidCommandException("Please use list r/exams or r/lectures and optional s/SORT_ORDER");
+        }
+
+        String[] separatedInput = separateInput(input);
+
+        if (separatedInput.length == 1) {
+            return new ListOptions("bookings", SortOrder.ORIGINAL);
+        }
+
+        String[] options = separatedInput[1].strip()
+                .split("\\p{javaWhitespace}+");
+
+        boolean reasonSeen = false;
+        boolean sortOrderSeen = false;
+        String item = "bookings";
+        SortOrder sortOrder = SortOrder.ORIGINAL;
+        for (String option : options) {
+            if (option.startsWith("r/")) {
+                if (reasonSeen) {
+                    throw new InvalidCommandException("Reason should only be specified once");
+                }
+                reasonSeen = true;
+                if (option.equalsIgnoreCase("r/lectures")) {
+                    item = "lectures";
+                } else if (option.equalsIgnoreCase("r/exams")) {
+                    item = "exams";
+                } else {
+                    throw new InvalidCommandException("Reason should be lectures or exams");
+                }
+            } else if (option.startsWith("s/")) {
+                if (sortOrderSeen) {
+                    throw new InvalidCommandException("Sort order should only be specified once");
+                }
+                sortOrderSeen = true;
+                switch (option.toLowerCase(Locale.ROOT)) {
+                case "s/alpha":
+                    sortOrder = SortOrder.ALPHABETIC;
+                    break;
+                case "s/~alpha":
+                    sortOrder = SortOrder.REVERSE_ALPHABETIC;
+                    break;
+                case "s/time":
+                    sortOrder = SortOrder.TIME_INCREASING;
+                    break;
+                case "s/~time":
+                    sortOrder = SortOrder.TIME_DECREASING;
+                    break;
+                default:
+                    throw new InvalidCommandException("list must be followed by a valid sort order");
+                }
+            } else {
+                throw new InvalidCommandException("List must be followed by a valid reason or sort order");
+            }
+        }
+        return new ListOptions(item, sortOrder);
+    }
+
+    /**
+     * Extracts the booking name from a command in the form: viewBooking n/BOOKING_NAME.
+     * The name is kept as text, so it may contain spaces.
+     * @author produdepunk
+     * @param input whole string parsed by program
+     * @return the booking name to view
+     * @throws InvalidCommandException if the command is not a valid view booking command
+     */
+    public String parseViewBooking(String input) {
+        return parseViewBookingOptions(input).getName();
+    }
+
+    /**
+     * Parses a view booking command with an optional chronological sort option.
+     * @author produdepunk
+     * @param input whole command string entered by the user
+     * @return the booking name and whether to sort by time
+     */
+    public ViewOptions parseViewBookingOptions(String input) {
+        String command = parseCommand(input);
+        String[] separatedInput = separateInput(input);
+        if (!command.equals("viewbooking") || separatedInput.length < 2
+                || !separatedInput[1].strip().startsWith("n/")) {
+            throw new InvalidCommandException("Please use: viewbooking n/BOOKING_NAME [s/time]");
+        }
+
+        String details = separatedInput[1].strip().substring(2).strip();
+        boolean sortByTime = false;
+        int sortOptionIndex = details.indexOf(" s/");
+        if (sortOptionIndex >= 0) {
+            String sortOption = details.substring(sortOptionIndex + 1).strip();
+            if (!sortOption.equalsIgnoreCase("s/time")) {
+                throw new InvalidCommandException("Sort order must be time.");
+            }
+            details = details.substring(0, sortOptionIndex).strip();
+            sortByTime = true;
+        }
+
+        String name = details;
+        if (name.isBlank()) {
+            throw new InvalidCommandException("Booking name must not be empty.");
+        }
+        return new ViewOptions(name, sortByTime);
+    }
+
+    /**
+     * Extracts the search keyword from a command in the form: find n/KEYWORD.
+     * The keyword is kept as text, so it may contain spaces.
+     * @author Pratham-tech
+     * @param input whole command string entered by the user, never null
+     * @return the keyword to search for in booking names
+     * @throws InvalidCommandException if the command is not a valid find command
+     */
+    public String parseFind(String input) {
+        assert input != null : "Find command input must not be null";
+        String command = parseCommand(input);
+        String[] separatedInput = separateInput(input);
+        if (!command.equals("find") || separatedInput.length < 2
+                || !separatedInput[1].strip().startsWith("n/")) {
+            throw new InvalidCommandException("Please use: find n/KEYWORD");
+        }
+
+        String keyword = separatedInput[1].strip().substring(2).strip();
+        if (keyword.isBlank()) {
+            throw new InvalidCommandException("Search keyword must not be empty.");
+        }
+        return keyword;
+    }
+    /**
+     * Checks that a calendar command has no extra words after it, because it always shows today's bookings.
+     * @author Pratham-tech
+     * @param input whole command string entered by the user, never null
+     * @throws InvalidCommandException if the command is not exactly: calendar
+     */
+    public void parseCalendar(String input) {
+        assert input != null : "Calendar command input must not be null";
+        String command = parseCommand(input);
+        String[] separatedInput = separateInput(input);
+        if (!command.equals("calendar") || separatedInput.length > 1) {
+            throw new InvalidCommandException("Please use: calendar");
+        }
+    }
+
+    /**
+     * Parses the start of the one-hour slot for an availability search.
+     * @author Kytersaurus
+     * @param input string command input from user
+     */
+    public LocalDateTime parseFreeTime(String input) {
+        assert input != null : "Free command input cannot be null";
+        String[] parts = separateInput(input);
+
+        if (!parseCommand(input).equalsIgnoreCase("free") || parts.length < 2
+                || !parts[1].strip().startsWith("t/")) {
+            throw new InvalidCommandException("Please use: free t/dd/MM/yyyy HH:mm");
+        }
+
+        String timing = parts[1].strip().substring(2).strip();
+
+        try {
+            return Booking.parseStartTime(timing);
+        } catch (DateTimeParseException e) {
+            throw new InvalidCommandException("Timing must use t/dd/MM/yyyy HH:mm format");
+        }
+    }
+
+    /**
+     * Parses a start-time search or a venue's daily availability search.
+     * @author Kytersaurus
+     * @param input complete free command
+     * @return validated availability search options
+     * @throws InvalidCommandException if the syntax, venue or date is invalid
+     */
+    public FreeOptions parseFreeOptions(String input) {
+        assert input != null : "Free command input cannot be null";
+        String[] parts = separateInput(input);
+        if (!parseCommand(input).equals("free") || parts.length < 2) {
+            throw new InvalidCommandException("Please use: free t/dd/MM/yyyy HH:mm"
+                    + " or free v/VENUE d/dd/MM/yyyy");
+        }
+
+        String arguments = parts[1].strip();
+        if (arguments.startsWith("t/")) {
+            return new FreeOptions(parseFreeTime(input), null, null);
+        }
+
+        Matcher matcher = FREE_VENUE_PATTERN.matcher(arguments);
+        if (!matcher.matches()) {
+            throw new InvalidCommandException("Please use: free v/VENUE d/dd/MM/yyyy");
+        }
+        String venue = matcher.group(1).strip();
+        if (!VenueCatalog.findVenueInCatalog(venue)) {
+            throw new InvalidCommandException("Unknown preset venue: " + venue);
+        }
+
+        try {
+            LocalDate date = Booking.parseStartTime(matcher.group(2) + " 00:00").toLocalDate();
+            return new FreeOptions(null, venue, date);
+        } catch (DateTimeParseException e) {
+            throw new InvalidCommandException("Date must be a valid date in dd/MM/yyyy format");
+        }
+    }
+
+    /**
+     * Holds a time search or a venue-and-date search.
+     * Time searches have null venue and date fields; venue searches have a null startTime.
+     * @author Kytersaurus
+     */
+    public record FreeOptions(LocalDateTime startTime, String venue, LocalDate date) {
+    }
+
+    /**
+     * Holds the booking filter and sorting options for the list command.
+     * @author Kytersaurus
+     */
+    public record ListOptions(String item, SortOrder sortOrder) {
+    }
+}

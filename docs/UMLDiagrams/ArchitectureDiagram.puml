@@ -1,0 +1,26 @@
+@startuml
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam defaultTextAlignment center
+top to bottom direction
+
+component "EduReserve\nApplication entry point" as App #FFF2CC
+component "UI\nUi, Parser, HelpText" as UI #DAE8FC
+component "Commands\nBook, List, Free, etc." as Commands #E1D5E7
+component "Model\nBooking, BookingList,\nVenueCatalog" as Model #D5E8D4
+component "Storage" as Storage #F8CECC
+artifact "Data files\nbookings.txt, username.txt" as Files #F5F5F5
+
+App --> UI : processes input
+App --> Storage : loads and saves data
+App --> Model : holds booking list
+
+UI --> Commands : executes commands
+UI --> Model : reads and updates bookings
+
+Commands --> Model : reads and updates bookings
+Storage --> Model : loads and saves bookings
+Storage --> Files : reads and writes
+
+@enduml

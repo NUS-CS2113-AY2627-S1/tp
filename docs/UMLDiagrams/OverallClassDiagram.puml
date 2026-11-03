@@ -1,0 +1,66 @@
+@startuml OverallClassDiagram
+title EduReserve overall class diagram
+
+top to bottom direction
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype polyline
+skinparam groupInheritance 2
+skinparam nodesep 30
+skinparam ranksep 45
+hide empty members
+hide circle
+
+class EduReserve #FFF2CC
+
+package ui #DAE8FC {
+  class Ui {
+    +processCommand(userInput: String): boolean
+  }
+  class Parser {
+    +parseCommand(input: String): String
+    +parseBooking(input: String): Booking
+  }
+  Ui --> "1" Parser : parser
+}
+
+package storage #F8CECC {
+  class Storage {
+    +loadBookings(): BookingList
+    +saveBookings(bookings: BookingList): FileTime
+  }
+}
+
+package tasks #D5E8D4 {
+  class BookingList {
+    +add(booking: Booking): void
+    +remove(index: int): void
+    +findClash(newBooking: Booking): Booking
+  }
+  abstract class "Task\n{abstract}" as Task
+  class Booking
+  class VenueCatalog
+  BookingList --> "0..*" Booking : bookings
+  Task <|-- Booking
+  VenueCatalog ..> BookingList : checks availability
+}
+
+package command #E1D5E7 {
+  abstract class "Command\n{abstract}" as Command {
+    {abstract} +execute(bookings: BookingList, item: String): void <U+007B>abstract<U+007D>
+  }
+}
+
+EduReserve ..down> Ui : creates / calls
+EduReserve ..down> Storage : creates / calls
+Ui --> "1" BookingList : bookingList
+Ui ..down> Command : executes
+Storage ..> BookingList : loads / saves
+Parser ..> Booking : creates
+Command ..down> BookingList : execute parameter
+
+' Hidden links keep the model below the application services.
+Storage -[hidden]down-> VenueCatalog
+Command -[hidden]down-> Task
+@enduml

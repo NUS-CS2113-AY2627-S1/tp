@@ -1,0 +1,86 @@
+@startuml
+scale 2
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+participant ":EditCommand" as Edit
+participant ":BookingList" as Bookings
+
+User -> UI: processCommand("editbooking n/Midterm")
+activate UI
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "editbooking"
+deactivate Parser
+
+UI -> Parser: parseEdit(userInput)
+activate Parser
+Parser --> UI: "Midterm"
+deactivate Parser
+
+UI -> Edit: execute(bookings, "Midterm")
+activate Edit
+Edit -> Bookings: findAllByName("Midterm")
+activate Bookings
+Bookings --> Edit: matchingBookings
+deactivate Bookings
+note right of Edit: Print filtered matches and selection prompt
+Edit --> UI
+deactivate Edit
+deactivate UI
+
+User -> UI: processCommand("2")
+activate UI
+UI -> Edit: isPending()
+activate Edit
+Edit --> UI: true
+deactivate Edit
+UI -> Edit: processInput(bookings, "2")
+activate Edit
+Edit -> Edit: selectBooking(matches, 2)
+note right of Edit: Print selected booking and edit prompt
+Edit --> UI
+deactivate Edit
+deactivate UI
+
+User -> UI: processCommand("v/LT3 a/80")
+activate UI
+UI -> Edit: isPending()
+activate Edit
+Edit --> UI: true
+deactivate Edit
+UI -> Edit: processInput(bookings, "v/LT3 a/80")
+activate Edit
+
+Edit -> Parser: parseEditedBooking(selectedBooking, input)
+activate Parser
+Parser --> Edit: replacementBooking
+deactivate Parser
+
+Edit -> Edit: findClashExceptSelected(bookings, replacementBooking)
+loop each booking except selectedBooking
+    Edit -> Bookings: get(index)
+    activate Bookings
+    Bookings --> Edit: existingBooking
+    deactivate Bookings
+end
+
+alt venue and time clash found
+    Edit --> UI: InvalidCommandException
+    note right of UI: Console output: Booking clash error
+else no clash
+    Edit -> Bookings: replace(selectedBooking, replacementBooking)
+    activate Bookings
+    Bookings --> Edit
+    deactivate Bookings
+    note right of Edit: Print "Booking updated: ..."
+    Edit --> UI
+end
+
+deactivate Edit
+deactivate UI
+
+@enduml

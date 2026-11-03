@@ -1,0 +1,46 @@
+@startuml
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+
+participant ":Ui" as UI
+
+participant ":Parser" as Parser
+participant ":BookingList" as Bookings
+
+User -> UI: processCommand("find n/CS2")
+activate UI
+
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "find"
+deactivate Parser
+
+UI -> Parser: parseFind(userInput)
+activate Parser
+Parser --> UI: "CS2"
+deactivate Parser
+
+create participant ":FindCommand" as Find
+UI -> Find: new FindCommand()
+
+UI -> Find: execute(bookingList, "CS2")
+activate Find
+
+Find -> Bookings: findByKeyword("CS2")
+activate Bookings
+Bookings --> Find: matches
+deactivate Bookings
+
+alt matches is empty
+    note right of Find: Console output: "No bookings found matching: CS2"
+else matches found
+    note right of Find: Console output: numbered matches in original order
+end
+
+Find --> UI
+deactivate Find
+
+deactivate UI
+@enduml

@@ -1,0 +1,73 @@
+@startuml
+' @author Maxkedd
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+participant "redoCommand:RedoCommand" as Redo
+participant "undoCommand:UndoCommand" as Undo
+participant "redoHistory:Deque<UndoEntry>" as RedoHistory
+participant "history:Deque<UndoEntry>" as History
+participant ":BookingList" as Bookings
+
+User -> UI: processCommand("/redo")
+activate UI
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "/redo"
+deactivate Parser
+
+UI -> Redo: execute(bookingList, userInput)
+activate Redo
+Redo -> Undo: redo(bookingList)
+activate Undo
+Undo -> RedoHistory: isEmpty()
+activate RedoHistory
+RedoHistory --> Undo: empty
+deactivate RedoHistory
+
+alt empty == true
+    note right of Undo: Console output: "No commands to redo."
+else redo history contains an undone command
+    Undo -> RedoHistory: peek()
+    activate RedoHistory
+    RedoHistory --> Undo: lastUndone
+    deactivate RedoHistory
+
+    loop while bookingList is not empty
+        Undo -> Bookings: size()
+        activate Bookings
+        Bookings --> Undo: size
+        deactivate Bookings
+        Undo -> Bookings: remove(size - 1)
+        activate Bookings
+        Bookings --> Undo
+        deactivate Bookings
+    end
+
+    loop for each booking in lastUndone.resultingBookings()
+        Undo -> Bookings: add(booking)
+        activate Bookings
+        Bookings --> Undo
+        deactivate Bookings
+    end
+
+    Undo -> RedoHistory: pop()
+    activate RedoHistory
+    RedoHistory --> Undo: removed entry
+    deactivate RedoHistory
+
+    Undo -> History: push(lastUndone)
+
+    note right of Undo: Console output: "Redid command: " + lastUndone.userInput()
+end
+
+Undo --> Redo
+deactivate Undo
+Redo --> UI
+deactivate Redo
+deactivate UI
+
+@enduml

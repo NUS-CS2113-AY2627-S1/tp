@@ -1,0 +1,68 @@
+@startuml
+' @author Maxkedd
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+participant "undoCommand:UndoCommand" as Undo
+participant "history:Deque<UndoEntry>" as History
+participant "redoHistory:Deque<UndoEntry>" as RedoHistory
+participant ":BookingList" as Bookings
+
+User -> UI: processCommand("/undo")
+activate UI
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "/undo"
+deactivate Parser
+
+UI -> Undo: execute(bookingList, userInput)
+activate Undo
+Undo -> History: isEmpty()
+activate History
+History --> Undo: empty
+deactivate History
+
+alt empty == true
+    note right of Undo: Console output: "No commands to undo."
+else history contains an undoable command
+    Undo -> History: peek()
+    activate History
+    History --> Undo: lastCommand
+    deactivate History
+
+    loop while bookingList is not empty
+        Undo -> Bookings: size()
+        activate Bookings
+        Bookings --> Undo: size
+        deactivate Bookings
+        Undo -> Bookings: remove(size - 1)
+        activate Bookings
+        Bookings --> Undo
+        deactivate Bookings
+    end
+
+    loop for each booking in lastCommand.previousBookings()
+        Undo -> Bookings: add(booking)
+        activate Bookings
+        Bookings --> Undo
+        deactivate Bookings
+    end
+
+    Undo -> History: pop()
+    activate History
+    History --> Undo: removed entry
+    deactivate History
+
+    Undo -> RedoHistory: push(lastCommand)
+
+    note right of Undo: Console output: "Undid command: " + lastCommand.userInput()
+end
+
+Undo --> UI
+deactivate Undo
+deactivate UI
+
+@enduml

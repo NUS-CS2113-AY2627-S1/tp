@@ -1,0 +1,561 @@
+package ui;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+import org.junit.jupiter.api.Test;
+
+import exceptions.InvalidCommandException;
+import tasks.Booking;
+import command.SortOrder;
+
+/**
+ * Checks booking reasons, required fields, and preservation of user-supplied details.
+ */
+class ParserTest {
+    private final Parser parser = new Parser();
+
+    @Test
+    void parseBooking_fourFieldsWithIncorrectTimingPrefix_reportsUsage() {
+        InvalidCommandException error = assertThrows(InvalidCommandException.class,
+                () -> parser.parseBooking("book r/exam n/Midterm v/LT1 r/05/10/2026 14:00"));
+        assertEquals("Please use: book r/BOOKING_REASON n/BOOKING_NAME v/VENUE t/TIMING"
+                + " [a/ATTENDEES]", error.getMessage());
+    }
+
+    @Test
+    void parseFreeOptions_timeSearch_preservesExistingSyntax() {
+        Parser.FreeOptions options = parser.parseFreeOptions("free t/28/10/2026 14:30");
+        assertEquals(LocalDateTime.of(2026, 10, 28, 14, 30), options.startTime());
+        assertNull(options.venue());
+        assertNull(options.date());
+    }
+
+    @Test
+    void parseFreeOptions_venueSearch_acceptsCaseWhitespaceAndLeapDay() {
+        Parser.FreeOptions options = parser.parseFreeOptions("  FrEe\tv/ lt19 \td/29/02/2028  ");
+        assertEquals("lt19", options.venue());
+        assertEquals(LocalDate.of(2028, 2, 29), options.date());
+        assertNull(options.startTime());
+    }
+
+    @Test
+    void parseFreeOptions_venueSearch_preservesBuildingCodesAndYearBoundaryDate() {
+        for (String venue : new String[]{"COM1-0201", "COM4SR31", "I3-LT38"}) {
+            Parser.FreeOptions options = parser.parseFreeOptions("free v/" + venue + " d/31/12/2026");
+            assertEquals(venue, options.venue(), venue);
+            assertEquals(LocalDate.of(2026, 12, 31), options.date(), venue);
+            assertNull(options.startTime(), venue);
+        }
+    }
+
+    @Test
+    void parseFreeOptions_incompleteFieldsUppercasePrefixesOrMixedModes_areRejected() {
+        for (String input : new String[]{"free v/LT19 d/", "free v/LT19 d/2/11/2026",
+            "free v/LT19 d/02/11/26", "free V/LT19 d/02/11/2026", "free v/LT19 D/02/11/2026",
+            "free v/LT19 d/02/11/2026 14:00", "free v/LT19 d/02/11/2026 t/02/11/2026 14:00",
+            "free t/02/11/2026 14:00 d/02/11/2026", "free t/02/11/2026 24:00"}) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseFreeOptions(input), input);
+        }
+    }
+
+    @Test
+    void parseFreeOptions_invalidVenueDateOrSyntax_throws() {
+        for (String input : new String[]{"free", "free v/UNKNOWN d/28/10/2026",
+            "free v/LT19", "free d/28/10/2026 v/LT19", "free v/ d/28/10/2026",
+            "free v/LT19 d/31/02/2026", "free v/LT19 d/29/02/2025",
+            "free v/LT19 d/2026-10-28", "free v/LT19 d/28/10/2026 extra",
+            "free v/LT19 d/28/10/2026 d/29/10/2026", "free v/LT19 v/LT17 d/28/10/2026",
+            "free t/28/10/2026 14:00 v/LT19", "list v/LT19 d/28/10/2026"}) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseFreeOptions(input), input);
+        }
+        assertThrows(AssertionError.class, () -> parser.parseFreeOptions(null));
+    }
+
+    @Test
+    void parseFreeTime_validInput_returnsExactDateAndTime() {
+        assertEquals("free", parser.parseCommand("FREE t/28/10/2026 14:30"));
+        assertEquals(LocalDateTime.of(2026, 10, 28, 14, 30),
+                parser.parseFreeTime("free t/28/10/2026 14:30"));
+        assertEquals(LocalDateTime.of(2028, 2, 29, 0, 0),
+                parser.parseFreeTime("free t/29/02/2028 00:00"));
+    }
+
+    @Test
+    void parseFreeTime_whitespaceAndCommandCase_areAccepted() {
+        assertEquals(LocalDateTime.of(2026, 10, 28, 14, 0),
+                parser.parseFreeTime("  FrEe\tt/ 28/10/2026 14:00  "));
+    }
+
+    @Test
+    void parseFreeTime_missingPrefixOrWrongCommand_reportsUsage() {
+        String[] commands = {
+            "free", "free   ", "free 28/10/2026 14:00",
+            "free d/28/10/2026", "free T/28/10/2026 14:00", "list t/28/10/2026 14:00"
+        };
+        for (String command : commands) {
+            InvalidCommandException error = assertThrows(InvalidCommandException.class,
+                    () -> parser.parseFreeTime(command), command);
+            assertEquals("Please use: free t/dd/MM/yyyy HH:mm", error.getMessage(), command);
+        }
+    }
+
+    @Test
+    void parseFreeTime_invalidDatesTimesOrExtraArguments_areRejected() {
+        String[] commands = {
+            "free t/", "free t/31/02/2026 14:00", "free t/29/02/2025 14:00",
+            "free t/28/10/2026 24:00", "free t/28/10/2026 14:60",
+            "free t/2026-10-28 14:00", "free t/28/10/2026",
+            "free t/28/10/2026 14:00 extra", "free t/28/10/2026 14:00 t/28/10/2026 15:00"
+        };
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseFreeTime(command), command);
+        }
+    }
+
+    @Test
+    void parseEdit_fullName_preservesSpacesAndIgnoresCommandCase() {
+        assertEquals("editbooking", parser.parseCommand("EDITBOOKING n/Midterm"));
+        assertEquals("CS2113 Midterm", parser.parseEdit("  EDITBOOKING\tn/  CS2113 Midterm  "));
+    }
+
+    @Test
+    void parseEdit_missingNameOrWrongCommand_throws() {
+        for (String input : new String[]{"editbooking", "editbooking n/", "editbooking Midterm",
+            "editbooking r/exam", "find n/Midterm"}) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseEdit(input), input);
+        }
+    }
+
+    @Test
+    void parseEditedBooking_partialFields_preservesOtherFieldsAndSlashesWithinNames() {
+        Booking original = new Booking("exam", "Midterm", "LT1", "05/10/2026 14:00");
+
+        Booking updated = parser.parseEditedBooking(original, "\tn/Part a/b Final Review  \tv/Lecture Theatre 2  ");
+
+        assertEquals("Part a/b Final Review", updated.getName());
+        assertEquals("Lecture Theatre 2", updated.getVenue());
+        assertEquals(original.getTiming(), updated.getTiming());
+        assertEquals(original.getReason(), updated.getReason());
+    }
+
+    @Test
+    void parseEditedBooking_invalidOrRepeatedFields_throws() {
+        Booking original = new Booking("exam", "Midterm", "LT1", "05/10/2026 14:00");
+        for (String input : new String[]{"", " ", "LT2", "x/LT2", "v/", "n/", "r/", "t/",
+            "v/LT2 v/LT3", "r/lecture r/exam", "n/One n/Two", "t/05/10/2026 14:00 t/06/10/2026 14:00"}) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseEditedBooking(original, input), input);
+        }
+    }
+
+    @Test
+    void parseBooking_invalidDatesAndTimes_reportRequiredFormat() {
+        String[] timings = {
+            "10:30am", "31/02/2026 14:00", "29/02/2025 14:00", "05/13/2026 14:00",
+            "05/10/2026 24:00", "05/10/2026 14:60", "2026-10-05 14:00", "5/10/2026 14:00"
+        };
+        for (String timing : timings) {
+            InvalidCommandException error = assertThrows(InvalidCommandException.class,
+                    () -> parser.parseBooking("book r/exam n/Midterm v/LT1 t/" + timing), timing);
+            assertEquals("Timing must use dd/MM/yyyy HH:mm, for example 05/10/2026 14:00.",
+                    error.getMessage(), timing);
+        }
+    }
+
+    @Test
+    void parseBooking_leapDay_acceptsRealDate() {
+        Booking booking = parser.parseBooking("book r/exam n/Midterm v/LT1 t/29/02/2028 00:00");
+        assertEquals(java.time.LocalDateTime.of(2028, 2, 29, 0, 0), booking.getStartTime());
+    }
+
+    @Test
+    void parseBooking_optionalAttendeeCountIsStoredAndMustBePositive() {
+        Booking sizedBooking = parser.parseBooking(
+                "book r/exam n/Midterm v/LT1 t/05/10/2026 14:00 a/80");
+        Booking unsizedBooking = parser.parseBooking(
+                "book r/exam n/Final v/LT2 t/06/10/2026 14:00");
+
+        assertEquals(80, sizedBooking.getAttendeeCount());
+        assertNull(unsizedBooking.getAttendeeCount());
+        for (String count : new String[]{"0", "-2", "many"}) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseBooking(
+                    "book r/exam n/Midterm v/LT1 t/05/10/2026 14:00 a/" + count), count);
+        }
+    }
+
+    @Test
+    void parseEditedBooking_attendeeSuffixUpdatesOrPreservesCount() {
+        Booking original = new Booking("exam", "Midterm", "LT1", "05/10/2026 14:00", 80);
+
+        Booking changedVenue = parser.parseEditedBooking(original, "v/LT2");
+        Booking changedCount = parser.parseEditedBooking(original, "v/LT3 a/95");
+
+        assertEquals("LT2", changedVenue.getVenue());
+        assertEquals(80, changedVenue.getAttendeeCount());
+        assertEquals("LT3", changedCount.getVenue());
+        assertEquals(95, changedCount.getAttendeeCount());
+    }
+
+    @Test
+    void parseBookingAndCancel_nullInput_failPreconditions() {
+        assertThrows(AssertionError.class, () -> parser.parseBooking(null));
+        assertThrows(AssertionError.class, () -> parser.parseCancel(null));
+    }
+
+    @Test
+    void specializedParsers_otherRecognizedCommand_rejectWrongCommand() {
+        assertThrows(InvalidCommandException.class, () -> parser.parseCancel("list n/Midterm"));
+        assertThrows(InvalidCommandException.class, () -> parser.parseFind("list n/Midterm"));
+        assertThrows(InvalidCommandException.class, () -> parser.parseViewList("bye"));
+        assertThrows(InvalidCommandException.class, () -> parser.parseCalendar("bye"));
+    }
+
+    @Test
+    void parseCommand_unknownOrBlankInput_reportsOriginalCommand() {
+        for (String command : new String[]{"UNKNOWN", "", "   "}) {
+            InvalidCommandException error = assertThrows(InvalidCommandException.class,
+                    () -> parser.parseCommand(command));
+            assertEquals(command.strip() + " is not a valid command! -_-", error.getMessage());
+        }
+    }
+
+    @Test
+    void parseBooking_exam_createsBooking() {
+        Booking booking = parser.parseBooking(
+                "book r/exam n/CS2113 Midterm v/LT1 t/05/10/2026 10:30");
+
+        assertEquals("exam", booking.getReason());
+        assertEquals("CS2113 Midterm", booking.getName());
+        assertEquals("LT1", booking.getVenue());
+        assertEquals("05/10/2026 10:30", booking.getTiming());
+    }
+
+    @Test
+    void parseBooking_lecture_preservesSpacesAndDates() {
+        Booking booking = parser.parseBooking(
+                "book r/lecture n/Part a/b Lecture v/Lecture Theatre 2 t/05/10/2026 14:00");
+
+        assertEquals("lecture", booking.getReason());
+        assertEquals("Part a/b Lecture", booking.getName());
+        assertEquals("Lecture Theatre 2", booking.getVenue());
+        assertEquals("05/10/2026 14:00", booking.getTiming());
+    }
+
+    @Test
+    void parseBooking_mixedCaseAndWhitespace_normalizesReason() {
+        Booking booking = parser.parseBooking(
+                "  BOOK\tr/  LeCtUrE\tn/  Week 1 Lecture   v/ LT2   t/ 05/10/2026 14:00  ");
+
+        assertEquals("lecture", booking.getReason());
+        assertEquals("Week 1 Lecture", booking.getName());
+        assertEquals("LT2", booking.getVenue());
+        assertEquals("05/10/2026 14:00", booking.getTiming());
+    }
+
+    @Test
+    void parseBooking_unsupportedReasons_throws() {
+        for (String reason : new String[]{"meeting", "examination", "lectures", "exam lecture", ""}) {
+            assertThrows(InvalidCommandException.class,
+                    () -> parser.parseBooking("book r/" + reason + " n/Midterm v/LT1 t/10:30am"), reason);
+        }
+    }
+
+    @Test
+    void parseBooking_missingOrBlankFields_throws() {
+        String[] commands = {
+            "book", "book   ", "book n/Midterm v/LT1 t/10:30am", "book r/exam v/LT1 t/10:30am",
+            "book r/exam n/Midterm t/10:30am", "book r/exam n/Midterm v/LT1",
+            "book r/ n/Midterm v/LT1 t/10:30am", "book r/exam n/ v/LT1 t/10:30am",
+            "book r/exam n/Midterm v/ t/10:30am", "book r/lecture n/Week 1 v/LT1 t/   ",
+            "book r/exam v/LT1 t/10:30am n/"
+        };
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseBooking(command), command);
+        }
+    }
+
+    @Test
+    void parseBooking_malformedFields_throws() {
+        String[] commands = {
+            "book exam Midterm LT1 10:30am", "book unexpected r/exam n/Midterm v/LT1 t/10:30am",
+            "book R/exam n/Midterm v/LT1 t/10:30am", "book x/extra r/exam n/Midterm v/LT1 t/10:30am",
+            "book r/examn/Midterm v/LT1 t/10:30am", "book r/exam n/Midterm venue/LT1 t/10:30am",
+            "book n/Midterm r/exam v/LT1 t/10:30am", "book r/exam n/Midterm t/10:30am v/LT1",
+            "book r/exam n/Midterm n/Final v/LT1 t/10:30am"
+        };
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseBooking(command), command);
+        }
+    }
+
+    @Test
+    void parseBooking_nonBookingCommand_throws() {
+        assertThrows(InvalidCommandException.class, () -> parser.parseBooking("bye"));
+        assertThrows(InvalidCommandException.class,
+                () -> parser.parseBooking("todo r/exam n/Midterm v/LT1 t/10:30am"));
+    }
+
+    @Test
+    void parseCancel_validName_returnsName() {
+        assertEquals("CS2113 Midterm", parser.parseCancel("cancel n/CS2113 Midterm"));
+        assertEquals("Part a/b", parser.parseCancel("  CANCEL\tn/  Part a/b  "));
+    }
+
+    @Test
+    void parseCancel_missingOrBlankName_throws() {
+        String[] commands = {"cancel", "cancel   ", "cancel n/", "cancel n/   ", "cancel Midterm", "cancel r/exam"};
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseCancel(command), command);
+        }
+    }
+
+    @Test
+    void parseViewList_noOptions_returnsOriginalBookings() {
+        for (String command : new String[]{"list", "  list   "}) {
+            Parser.ListOptions options = parser.parseViewList(command);
+
+            assertEquals("bookings", options.item(), command);
+            assertEquals(SortOrder.ORIGINAL, options.sortOrder(), command);
+        }
+    }
+
+    @Test
+    void parseViewList_filterOnly_returnsOriginalOrder() {
+        Parser.ListOptions exams = parser.parseViewList("list r/exams");
+        assertEquals("exams", exams.item());
+        assertEquals(SortOrder.ORIGINAL, exams.sortOrder());
+
+        Parser.ListOptions lectures = parser.parseViewList("list r/lectures");
+        assertEquals("lectures", lectures.item());
+        assertEquals(SortOrder.ORIGINAL, lectures.sortOrder());
+    }
+
+    @Test
+    void parseViewList_sortOnly_returnsAllBookings() {
+        Parser.ListOptions alphabetic = parser.parseViewList("list s/alpha");
+        assertEquals("bookings", alphabetic.item());
+        assertEquals(SortOrder.ALPHABETIC, alphabetic.sortOrder());
+
+        Parser.ListOptions reverse = parser.parseViewList("list s/~alpha");
+        assertEquals("bookings", reverse.item());
+        assertEquals(SortOrder.REVERSE_ALPHABETIC, reverse.sortOrder());
+    }
+
+    @Test
+    void parseViewList_timeIncreasing_acceptsFilterAndEitherOptionOrder() {
+        Parser.ListOptions all = parser.parseViewList("list s/time");
+        assertEquals("bookings", all.item());
+        assertEquals(SortOrder.TIME_INCREASING, all.sortOrder());
+
+        Parser.ListOptions expected =
+                new Parser.ListOptions("exams", SortOrder.TIME_INCREASING);
+        assertEquals(expected, parser.parseViewList("list r/exams s/time"));
+        assertEquals(expected, parser.parseViewList("  LIST\ts/TIME r/exams  "));
+    }
+
+    @Test
+    void parseViewList_timeDecreasing_acceptsFilterAndEitherOptionOrder() {
+        Parser.ListOptions all = parser.parseViewList("list s/~time");
+        assertEquals("bookings", all.item());
+        assertEquals(SortOrder.TIME_DECREASING, all.sortOrder());
+
+        Parser.ListOptions expected =
+                new Parser.ListOptions("lectures", SortOrder.TIME_DECREASING);
+        assertEquals(expected, parser.parseViewList("list r/lectures s/~time"));
+        assertEquals(expected, parser.parseViewList("  LIST\ts/~TIME r/lectures  "));
+    }
+
+    @Test
+    void parseViewList_filterAndSort_acceptsEitherOrder() {
+        Parser.ListOptions expected =
+                new Parser.ListOptions("exams", SortOrder.ALPHABETIC);
+
+        assertEquals(expected, parser.parseViewList("list r/exams s/alpha"));
+        assertEquals(expected, parser.parseViewList("list s/alpha r/exams"));
+    }
+
+    @Test
+    void parseViewList_whitespaceAndMixedCaseValues_areAccepted() {
+        Parser.ListOptions options =
+                parser.parseViewList("  LIST\tr/LeCtUrEs   s/~AlPhA  ");
+
+        assertEquals("lectures", options.item());
+        assertEquals(SortOrder.REVERSE_ALPHABETIC, options.sortOrder());
+    }
+
+    @Test
+    void parseViewList_invalidInputs_throws() {
+        String[] commands = {
+            "list meetings",
+            "list exams",
+            "list r/exam",
+            "list r/lecture",
+            "list r/",
+            "list s/",
+            "list s/numeric",
+            "list s/time_sideways",
+            "list s/time_up",
+            "list s/time_down",
+            "list r/exams extra",
+            "list s/alpha extra",
+            "list s/time extra",
+            "book",
+            "bye"
+        };
+
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class,
+                    () -> parser.parseViewList(command), command);
+        }
+    }
+
+    @Test
+    void parseViewList_repeatedOptions_throws() {
+        String[] commands = {
+            "list r/exams r/lectures",
+            "list r/exams r/exams",
+            "list s/alpha s/~alpha",
+            "list s/alpha s/alpha",
+            "list s/time s/~time",
+            "list s/time s/time"
+        };
+
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class,
+                    () -> parser.parseViewList(command), command);
+        }
+    }
+
+    @Test
+    void parseViewBooking_validName_returnsName() {
+        assertEquals("CS2113 Midterm", parser.parseViewBooking("viewbooking n/CS2113 Midterm"));
+    }
+
+    @Test
+    void parseViewBookingOptions_withoutSortOption_disablesChronologicalSorting() {
+        ViewOptions options = parser.parseViewBookingOptions("viewbooking n/CS2113 Midterm");
+
+        assertEquals("CS2113 Midterm", options.getName());
+        assertFalse(options.isSortByTime());
+    }
+
+    @Test
+    void parseViewBookingOptions_timeSortOption_enablesChronologicalSorting() {
+        ViewOptions options = parser.parseViewBookingOptions("viewbooking n/CS2113 Midterm s/TIME");
+
+        assertEquals("CS2113 Midterm", options.getName());
+        assertTrue(options.isSortByTime());
+    }
+
+    @Test
+    void parseViewBookingOptions_unsupportedSortOption_throws() {
+        assertThrows(InvalidCommandException.class,
+                () -> parser.parseViewBookingOptions("viewbooking n/CS2113 Midterm s/alpha"));
+    }
+
+    @Test
+    void parseViewBooking_nameWithPunctuationAndSpaces_isPreserved() {
+        assertEquals("Part a/b: Final Review", parser.parseViewBooking(
+                "viewbooking n/Part a/b: Final Review"));
+    }
+
+    @Test
+    void parseViewBooking_surroundingWhitespaceAndTabs_areIgnored() {
+        assertEquals("Week 1 Lecture", parser.parseViewBooking(
+                "  viewbooking\tn/  Week 1 Lecture  "));
+    }
+
+    @Test
+    void parseViewBooking_lowercaseCommand_returnsName() {
+        assertEquals("CS2113 Midterm", parser.parseViewBooking("viewbooking n/CS2113 Midterm"));
+    }
+
+    @Test
+    void parseViewBooking_missingOrBlankName_throws() {
+        String[] commands = {
+            "viewbooking",
+            "viewbooking   ",
+            "viewbooking n/",
+            "viewbooking n/   ",
+            "viewbooking CS2113 Midterm",
+            "viewbooking r/exam"
+        };
+
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class,
+                    () -> parser.parseViewBooking(command), command);
+        }
+    }
+
+    @Test
+    void parseViewBooking_wrongCommand_throws() {
+        String[] commands = {
+            "list n/CS2113 Midterm",
+            "book n/CS2113 Midterm",
+            "cancel n/CS2113 Midterm",
+            "bye",
+            "view n/CS2113 Midterm"
+        };
+
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class,
+                    () -> parser.parseViewBooking(command), command);
+        }
+    }
+
+    @Test
+    void parseViewBooking_unknownCommand_throws() {
+        assertThrows(InvalidCommandException.class,
+                () -> parser.parseViewBooking("search n/CS2113 Midterm"));
+    }
+
+    @Test
+    void parseViewBooking_nameWithOnlyWhitespaceAfterPrefix_throws() {
+        assertThrows(InvalidCommandException.class,
+                () -> parser.parseViewBooking("viewbooking\tn/\t\t"));
+    }
+
+    @Test
+    void parseFind_validKeyword_returnsKeyword() {
+        assertEquals("CS2", parser.parseFind("find n/CS2"));
+        assertEquals("final exam", parser.parseFind("  FIND\tn/  final exam  "));
+    }
+
+    @Test
+    void parseFind_missingOrBlankKeyword_throws() {
+        String[] commands = {"find", "find   ", "find n/", "find n/   ", "find CS2", "find r/exam"};
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseFind(command), command);
+        }
+    }
+
+    @Test
+    void parseFind_nullInput_throwsAssertionError() {
+        assertThrows(AssertionError.class, () -> parser.parseFind(null));
+    }
+
+    @Test
+    void parseCalendar_commandOnly_isAccepted() {
+        parser.parseCalendar("calendar");
+        parser.parseCalendar("  CALENDAR  ");
+    }
+
+    @Test
+    void parseCalendar_extraWords_throws() {
+        String[] commands = {"calendar today", "calendar d/05/10/2026", "calendar 5"};
+        for (String command : commands) {
+            assertThrows(InvalidCommandException.class, () -> parser.parseCalendar(command), command);
+        }
+    }
+
+    @Test
+    void parseCalendar_nullInput_throwsAssertionError() {
+        assertThrows(AssertionError.class, () -> parser.parseCalendar(null));
+    }
+}

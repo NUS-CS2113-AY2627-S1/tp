@@ -1,0 +1,58 @@
+@startuml
+mainframe sd FreeVenueSlots(bookingList, venue, date)
+
+skinparam sequenceMessageAlign center
+hide footbox
+
+participant ":FreeCommand" as Free
+participant "VenueCatalog" as Catalog <<class>>
+participant ":BookingList" as Bookings
+
+Free -> Free: printAvailableSlots(bookingList, venue, date)
+activate Free
+
+Free -> Catalog: findAvailableSlots(bookingList, venue, date)
+activate Catalog
+
+loop hour = 0 to 23
+    note right of Catalog
+    start = date.atTime(hour, 0)
+    Each candidate slot lasts one hour.
+    end note
+
+    Catalog -> Bookings: isVenueAvailable(venue, start)
+    activate Bookings
+
+    note right of Bookings
+    Check for overlapping bookings
+    at the same venue, ignoring capitalization.
+    Include bookings crossing midnight.
+    Adjacent slots are allowed.
+    end note
+
+    Bookings --> Catalog: isAvailable
+    deactivate Bookings
+
+    opt isAvailable
+        note right of Catalog: Add start time to the result list
+    end
+end
+
+Catalog --> Free: slots
+deactivate Catalog
+
+alt slots is empty
+    note right of Free: Print "No one-hour slots are available"
+else slots is not empty
+    note right of Free: Print numbered start and end dates/times
+
+    note right of Free
+    Number results starting at 1.
+
+    The 23:00 slot ends at midnight
+    on the following day.
+    end note
+end
+
+deactivate Free
+@enduml

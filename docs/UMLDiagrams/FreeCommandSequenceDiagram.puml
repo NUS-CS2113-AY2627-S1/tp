@@ -1,0 +1,108 @@
+@startuml
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+
+User -> UI: processCommand(userInput)
+activate UI
+
+note over User, UI
+Example inputs:
+free t/02/11/2026 14:00
+free v/LT19 d/02/11/2026
+end note
+
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "free"
+deactivate Parser
+
+create participant ":FreeCommand" as Free
+UI -> Free: new FreeCommand(parser)
+
+participant "VenueCatalog" as Catalog <<class>>
+participant ":BookingList" as Bookings
+
+UI -> Free: execute(bookingList, userInput)
+activate Free
+
+Free -> Parser: parseFreeOptions(userInput)
+activate Parser
+
+note right of Parser
+Validate the time,
+or the venue and date.
+end note
+
+Parser --> Free: options:FreeOptions
+deactivate Parser
+
+alt options.venue() == null
+    Free -> Free: printAvailableVenues(bookingList, startTime)
+    activate Free
+
+    Free -> Catalog: findAvailableVenues(bookingList, startTime)
+    activate Catalog
+
+    loop for each preset venue
+        Catalog -> Bookings: isVenueAvailable(venue, startTime)
+        activate Bookings
+
+        note right of Bookings
+        Check for overlapping one-hour bookings
+        at the same venue, ignoring capitalization.
+        Adjacent slots are allowed.
+        end note
+
+        Bookings --> Catalog: isAvailable
+        deactivate Bookings
+
+        opt isAvailable
+            note right of Catalog: Add venue to the result list
+        end
+    end
+
+    Catalog --> Free: venues
+    deactivate Catalog
+
+    note right of Free
+       Print the requested
+       one-hour time range.
+    end note
+
+    alt venues is empty
+        note right of Free
+        Print "No venues are available at specified time"
+        end note
+    else venues is not empty
+        note right of Free
+        Print available venues
+        numbered starting at 1
+        end note
+    end
+
+    deactivate Free
+
+else options.venue() != null
+    ref over Free, Bookings
+        FreeVenueSlots(bookingList, venue, date)
+    end ref
+end
+
+Free --> UI
+deactivate Free
+
+note right of UI: Console output: availability output and separator
+
+note over User, UI
+FreeCommand prints the heading and results.
+Ui prints the separators.
+Console output is shown as notes, not return values.
+end note
+
+
+deactivate UI
+@enduml

@@ -1,0 +1,111 @@
+@startuml
+scale 2
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":EduReserve" as App
+participant ":Storage" as Storage
+participant ":BookingList" as Bookings
+participant ":Booking" as Booking
+
+
+User -> App: start application
+activate App
+
+group Load saved username
+    App -> Storage: loadUserName()
+    activate Storage
+
+    Storage --> App: username or null
+    deactivate Storage
+
+    alt no username is saved
+        note right of App: Console output: "What is your name?"
+        User -> App: enter userName
+
+        App -> Storage: saveUserName(userName)
+        activate Storage
+        Storage --> App
+        deactivate Storage
+    end
+end
+
+group Load saved bookings
+    App -> Storage: loadBookings()
+    activate Storage
+
+    alt data file does not exist
+        Storage -> Storage: createEmptyDataFile()
+        Storage --> App: empty booking list
+    else data file exists
+        Storage -> Storage: read saved lines
+
+        loop for each nonblank line
+            Storage -> Storage: parseBooking(line, lineNumber)
+
+            alt old five-part line
+                note right of Storage
+                    Set attendee count to null.
+                end note
+            else new six-part line
+                note right of Storage
+                    Parse and validate
+                    the attendee count.
+                end note
+            end
+
+            Storage -> Booking: new Booking(...)
+            activate Booking
+            Booking --> Storage: booking
+            deactivate Booking
+
+            Storage -> Bookings: add(booking)
+            activate Bookings
+            Bookings --> Storage
+            deactivate Bookings
+        end
+
+        Storage --> App: booking list
+    end
+
+    deactivate Storage
+end
+
+User -> App: enter command
+note right of App
+    Command processing is omitted.
+    It may change the booking list.
+end note
+
+group Save current bookings
+    App -> Storage: saveBookings(bookings)
+    activate Storage
+
+    loop for each booking
+        Storage -> Bookings: get(index)
+        activate Bookings
+        Bookings --> Storage: booking
+        deactivate Bookings
+
+        Storage -> Booking: get booking details
+        activate Booking
+        Booking --> Storage: reason, name, venue,\ntiming and attendee count
+        deactivate Booking
+
+        note right of Storage
+            Convert the booking
+            into one line.
+        end note
+    end
+
+    Storage -> Storage: write lines to bookings.txt
+    Storage -> Storage: getLastModifiedTime()
+    Storage --> App: last modified time
+    deactivate Storage
+
+    note right of App: Console output: "Bookings saved at: " + formatted time
+end
+
+deactivate App
+@enduml

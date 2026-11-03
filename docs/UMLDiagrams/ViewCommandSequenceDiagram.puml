@@ -1,0 +1,53 @@
+@startuml
+scale 2
+'https://plantuml.com/sequence-diagram
+
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+
+participant ":Ui" as UI
+
+participant ":Parser" as Parser
+
+User -> UI: processCommand("viewbooking n/CS2113 Midterm s/time")
+activate UI
+
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "viewbooking"
+deactivate Parser
+
+UI -> Parser: parseViewBookingOptions(userInput)
+activate Parser
+Parser --> UI: ViewOptions("CS2113 Midterm", true)
+deactivate Parser
+
+note right of UI: Console output: the matching bookings heading
+
+create participant ":ViewCommand" as View
+UI -> View: new ViewCommand()
+participant ":BookingList" as Bookings
+
+UI -> View: execute(bookingList, "CS2113 Midterm", true)
+activate View
+
+View -> Bookings: findAllByName("CS2113 Midterm")
+activate Bookings
+Bookings --> View: matchingBookings
+deactivate Bookings
+
+opt sortByTime is true
+    View -> View: sort matchingBookings by start time
+end
+
+loop each matching booking
+    note right of View: Print booking number, purpose, venue, and timing
+end
+
+View --> UI
+deactivate View
+
+deactivate UI
+@enduml

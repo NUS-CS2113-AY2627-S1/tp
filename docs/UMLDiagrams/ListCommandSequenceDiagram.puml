@@ -1,0 +1,97 @@
+@startuml
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor User
+participant ":Ui" as UI
+participant ":Parser" as Parser
+
+User -> UI: processCommand("list r/exams s/alpha")
+activate UI
+
+UI -> Parser: parseCommand(userInput)
+activate Parser
+Parser --> UI: "list"
+deactivate Parser
+
+create participant ":ListCommand" as List
+UI -> List: new ListCommand(parser)
+
+participant "lastShownList:ArrayList<Booking>" as Shown
+participant ":BookingList" as Bookings
+
+UI -> List: execute(bookingList, userInput)
+activate List
+
+List -> Parser: parseViewList(userInput)
+activate Parser
+Parser --> List: ListOptions("exams", ALPHABETIC)
+deactivate Parser
+
+note right of List: Print the selected filter and sort order
+
+List -> List: execute(bookingList, "exams", ALPHABETIC)
+activate List
+
+List -> List: populateLastShownList(bookingList, "exams")
+activate List
+
+note right of List : Map "exams" to the booking reason "exam"
+
+List -> Shown: clear()
+note right of Shown: Clear the previous display list
+
+List -> Bookings: size()
+activate Bookings
+Bookings --> List: listSize
+deactivate Bookings
+
+loop i = 0 to listSize - 1
+    List -> Bookings: get(i)
+    activate Bookings
+    Bookings --> List: element
+    deactivate Bookings
+
+    opt reason == null || reason.equals(element.getReason())
+        List -> Shown: addLast(element)
+        note right of Shown: Include only exam bookings
+    end
+end
+
+deactivate List
+
+List -> List: sortLastShownList(ALPHABETIC)
+activate List
+
+note right of List
+Sort the display list by name,
+ignoring capitalization.
+Stored booking order is preserved.
+end note
+
+deactivate List
+
+List -> List: printLastShownList()
+activate List
+
+note right of List
+Print numbered bookings in alphabetical order,
+numbered starting at 1.
+end note
+
+deactivate List
+deactivate List
+
+List --> UI
+deactivate List
+
+note right of UI: Console output: listing output and separator
+
+note over User, UI
+ListCommand prints the heading and bookings.
+Ui prints the separators.
+Console output is shown as notes, not return values.
+end note
+
+deactivate UI
+@enduml
