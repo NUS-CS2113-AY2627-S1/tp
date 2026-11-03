@@ -5,6 +5,8 @@ plugins {
     id 'com.gradleup.shadow' version '9.5.1'
 }
 
+version = '2.1'
+
 java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
@@ -24,6 +26,7 @@ dependencies {
 }
 
 test {
+    enableAssertions = true
     useJUnitPlatform()
 
     testLogging {
@@ -38,7 +41,7 @@ test {
 }
 
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'lablog.LabLog'
 }
 
 jar {
@@ -49,7 +52,10 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'lablog.jar'
+    manifest {
+        attributes 'Implementation-Title': 'LabLog', 'Implementation-Version': project.version
+    }
 }
 
 checkstyle {
@@ -58,4 +64,5 @@ checkstyle {
 
 run {
     standardInput = System.in
+    enableAssertions = true
 }

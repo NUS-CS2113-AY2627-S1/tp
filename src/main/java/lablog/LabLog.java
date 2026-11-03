@@ -1,0 +1,660 @@
+package lablog;
+
+import java.io.PrintStream;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.util.Properties;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
+import java.util.function.Supplier;
+import java.util.logging.Logger;
+
+/**
+ * Main entry point for the LabLog command-line application.
+ */
+public class LabLog {
+    /** Records prompt validation and incomplete registration without storing user input. */
+    private static final Logger LOGGER = Logger.getLogger(LabLog.class.getName());
+    private final Inventory inventory;
+    private final HistoryCommands history;
+    private final ReturnCommands returns;
+    private final LoanCommands loanCommands;
+    private final RenewCommands renewals;
+    private final LostCommands lost;
+    private final LoanAuditCommands loanAudit;
+    private final LoanCorrectionCommands corrections;
+    private final HelpCommands help = new HelpCommands();
+    /** Present only for persistent CLI sessions; injected test sessions remain in memory. */
+    private Path dataFile;
+    private final BorrowerBook borrowers;
+    private final LoanBook loans;
+    private final Supplier<List<HistoryEntry>> otherHistory;
+    private final CommandHistory commandHistory = new CommandHistory();
+    private final BorrowerCommands borrowerCommands;
+    private final EquipmentAddCommands equipmentAdd;
+    private final EquipmentCopyCommands equipmentCopy;
+    private final EquipmentEditCommands equipmentEdit;
+    private final EquipmentMoveCommands equipmentMove;
+    private final RetireEquipmentCommands retireEquipment;
+    private final HistoryRecordCommands historyRecords;
+    private final FaultBook faults;
+    private final RepairCommands repairs;
+    private final ReservationBook reservations;
+    private final ReservationCommands reservationCommands;
+    private final AvailableEquipmentCommands availableEquipment;
+    private final UnavailableReasonCommands unavailableReasons;
+    private final WaitingRequestBook waiting;
+    private final WaitingRequestCommands waitingCommands;
+    private final ActiveLoanCommands activeLoans;
+    private final OverviewCommands overview;
+    private final EquipmentListCommands equipmentList;
+    private final EquipmentFindCommands equipmentFind;
+    private final EquipmentSearchCommands equipmentSearch;
+
+
+
+    /** Creates an application with empty in-memory equipment and loan records. */
+    public LabLog() {
+        this(new Inventory(), new LoanBook(), List::of);
+    }
+
+    /**
+     * Connects equipment registration and history to the application's shared records.
+     *
+     * @param inventory shared equipment inventory
+     * @param loans shared loan book
+     * @param otherHistory current reservation, fault, and maintenance display entries
+     */
+    public LabLog(Inventory inventory, LoanBook loans, Supplier<List<HistoryEntry>> otherHistory) {
+        this(inventory, loans, otherHistory, Clock.systemDefaultZone());
+    }
+
+    /**
+     * Connects shared records with an explicit clock for repeatable return-date tests.
+     *
+     * @param inventory shared equipment inventory
+     * @param loans shared loan book
+     * @param otherHistory current reservation, fault, and maintenance entries
+     * @param clock clock used to date returns
+     */
+    public LabLog(Inventory inventory, LoanBook loans, Supplier<List<HistoryEntry>> otherHistory, Clock clock) {
+        this(inventory, loans, otherHistory, clock, new BorrowerBook());
+    }
+
+    /** Connects both command groups to the same equipment, loans, and borrower records. */
+    public LabLog(Inventory inventory, LoanBook loans, Supplier<List<HistoryEntry>> otherHistory,
+            Clock clock, BorrowerBook borrowers) {
+        this(inventory, loans, otherHistory, clock, borrowers, new FaultBook(inventory));
+    }
+
+    /** Shares the store's fault book so commands, history and saves see the same reports. */
+    private LabLog(Inventory inventory, LoanBook loans, Supplier<List<HistoryEntry>> otherHistory,
+            Clock clock, BorrowerBook borrowers, FaultBook faults) {
+        this.faults = faults;
+        this.repairs = new RepairCommands(faults, clock);
+        this.inventory = inventory;
+        this.borrowers = borrowers;
+        this.loans = loans;
+        this.otherHistory = otherHistory;
+        this.reservations = new ReservationBook(inventory, borrowers, loans, faults, clock);
+        this.reservationCommands = new ReservationCommands(reservations);
+        this.waiting = new WaitingRequestBook(inventory, borrowers, faults, reservations.getAvailability(), clock);
+        this.waitingCommands = new WaitingRequestCommands(waiting);
+        this.availableEquipment = new AvailableEquipmentCommands(reservations.getAvailability());
+        this.unavailableReasons = new UnavailableReasonCommands(reservations.getAvailability(), clock);
+        this.equipmentAdd = new EquipmentAddCommands(inventory);
+        this.equipmentCopy = new EquipmentCopyCommands(inventory);
+        this.equipmentEdit = new EquipmentEditCommands(inventory);
+        this.equipmentMove = new EquipmentMoveCommands(inventory);
+        this.retireEquipment = new RetireEquipmentCommands(inventory, loans, reservations, clock);
+        this.historyRecords = new HistoryRecordCommands(inventory, faults);
+        this.activeLoans = new ActiveLoanCommands(loans, clock);
+        this.overview = new OverviewCommands(reservations, loans, faults, clock);
+        this.history = new HistoryCommands(inventory, loans, () -> {
+            List<HistoryEntry> entries = new ArrayList<>(otherHistory.get());
+            entries.addAll(historyRecords.getEntries());
+            reservations.getReservations().stream().flatMap(item -> item.toHistoryEntries().stream())
+                    .forEach(entries::add);
+            return entries;
+        });
+        this.equipmentList = new EquipmentListCommands(inventory, loans, faults);
+        this.equipmentFind = new EquipmentFindCommands(inventory, loans, faults);
+        this.equipmentSearch = new EquipmentSearchCommands(inventory, loans, faults);
+        this.returns = new ReturnCommands(inventory, loans, clock);
+        this.loanCommands = new LoanCommands(inventory, loans, clock, borrowers, faults,
+                reservations.getAvailability());
+        this.loanAudit = new LoanAuditCommands(inventory, loans);
+        this.corrections = new LoanCorrectionCommands(loans, reservations.getAvailability(), clock);
+        this.lost = new LostCommands(inventory, loans, clock);
+        this.renewals = new RenewCommands(loans, reservations.getAvailability(), clock);
+        this.borrowerCommands = new BorrowerCommands(borrowers, loans,
+                assetId -> inventory.getEquipmentUnits().stream()
+                        .filter(unit -> unit.getAssetId().equals(assetId)).map(Equipment::getName)
+                        .findFirst().orElse(null), clock);
+    }
+
+    /**
+     * Starts equipment registration and equipment history lookup.
+     *
+     * @param args command-line arguments
+     */
+    public static void main(String[] args) {
+        if (args.length > 1) {
+            System.err.println("Use: java -jar lablog.jar [DATA_FILE]");
+            return;
+        }
+        try {
+            load(Path.of(args.length == 1 ? args[0] : "data/lablog.properties")).run();
+        } catch (IOException exception) {
+            System.err.println("Error: Cannot load LabLog data. "
+                    + TerminalText.escapeControls(exception.getMessage()));
+        }
+    }
+
+    /** Creates a persistent session only after all saved records load successfully. */
+    public static LabLog load(Path file) throws IOException {
+        Path absolute = file.toAbsolutePath().normalize();
+        Inventory inventory;
+        LoanBook loans;
+        FaultBook faults;
+        BorrowerBook borrowers = new BorrowerBook();
+        List<HistoryEntry> notes = List.of();
+        List<Reservation> bookings = List.of();
+        List<WaitingRequest> waitingRequests = List.of();
+        Properties records = Files.exists(absolute) ? ApplicationSnapshot.readProperties(absolute) : null;
+        // Only explicit format-1 data may use split-file migration. Missing snapshot fields are corruption.
+        if (records != null && (!"1".equals(records.getProperty("format"))
+                || records.containsKey("borrower.count"))) {
+            ApplicationSnapshot snapshot = ApplicationSnapshot.decode(records);
+            inventory = new Inventory();
+            inventory.replaceAll(snapshot.getEquipment());
+            loans = new LoanBook();
+            loans.replaceAll(snapshot.getLoans(), snapshot.getAuditEvents());
+            borrowers.replaceAll(snapshot.getBorrowers());
+            notes = snapshot.getNotes();
+            bookings = snapshot.getReservations();
+            waitingRequests = snapshot.getWaitingRequests();
+            faults = new FaultBook(inventory);
+            faults.replaceAll(snapshot.getFaults());
+        } else {
+            LabLogStore legacy = new LabLogStore(absolute);
+            inventory = legacy.getInventory();
+            loans = legacy.getLoans();
+            faults = legacy.getFaults();
+            Path borrowerFile = absolute.resolveSibling("borrowers.properties");
+            borrowers.replaceAll(new BorrowerBook(borrowerFile).getBorrowers());
+        }
+        LabLog application = new LabLog(inventory, loans, List::of, Clock.systemDefaultZone(), borrowers, faults);
+        application.dataFile = absolute;
+        application.historyRecords.replaceAll(notes);
+        application.reservations.replaceAll(bookings);
+        application.waiting.replaceAll(waitingRequests);
+        application.waiting.setSaver(proposed -> application.snapshot(borrowers.getBorrowers(),
+                application.reservations.getReservations(), proposed).write(absolute));
+        application.reservations.setSaver(proposed -> application.snapshot(borrowers.getBorrowers(), proposed)
+                .write(absolute));
+        // Persist proposed borrowers in the same atomic file as their equipment and loan references.
+        borrowers.setSaver(proposed -> application.snapshot(proposed).write(absolute));
+        return application;
+    }
+
+    /** Captures supported history notes as well as borrowers, equipment and complete loans. */
+    private ApplicationSnapshot snapshot(List<Borrower> proposedBorrowers) {
+        return snapshot(proposedBorrowers, reservations.getReservations());
+    }
+
+    /** Saves a proposed booking change before publishing it to the shared book. */
+    private ApplicationSnapshot snapshot(List<Borrower> proposedBorrowers, List<Reservation> proposedReservations) {
+        return snapshot(proposedBorrowers, proposedReservations, waiting.getRequests());
+    }
+
+    /** Saves proposed demand without changing confirmed reservations. */
+    private ApplicationSnapshot snapshot(List<Borrower> proposedBorrowers, List<Reservation> proposedReservations,
+            List<WaitingRequest> proposedWaiting) {
+        List<HistoryEntry> notes = new ArrayList<>(otherHistory.get());
+        notes.addAll(historyRecords.getNotes());
+        return new ApplicationSnapshot(inventory.getEquipmentUnits(), proposedBorrowers, loans.getLoans(), notes,
+                faults.getFaults(), proposedReservations, proposedWaiting, loans.getAuditEvents());
+    }
+
+    /** Validates and saves an import before replacing any of the shared live books. */
+    private void importSnapshot(Path source) throws IOException {
+        if (!otherHistory.get().isEmpty()) {
+            throw new IllegalArgumentException("Import cannot replace externally owned history records.");
+        }
+        ApplicationSnapshot replacement = ApplicationSnapshot.read(source);
+        if (dataFile != null) {
+            replacement.write(dataFile);
+        }
+        inventory.replaceAll(replacement.getEquipment());
+        loans.replaceAll(replacement.getLoans(), replacement.getAuditEvents());
+        borrowers.replaceAll(replacement.getBorrowers());
+        historyRecords.replaceAll(replacement.getNotes());
+        faults.replaceAll(replacement.getFaults());
+        reservations.replaceAll(replacement.getReservations());
+        waiting.replaceAll(replacement.getWaitingRequests());
+    }
+
+    /** Uses explicit replacement syntax and never overwrites an existing export destination. */
+    private String transfer(String input, String command) throws IOException {
+        String argument = input.substring(command.length()).strip();
+        if (command.equals("import")) {
+            if (!argument.endsWith(" --replace")) {
+                throw new IllegalArgumentException("Use: import FILE --replace (replaces all current records)");
+            }
+            argument = argument.substring(0, argument.length() - " --replace".length()).strip();
+        }
+        if (argument.startsWith("\"") && argument.endsWith("\"") && argument.length() >= 2) {
+            argument = argument.substring(1, argument.length() - 1);
+        }
+        if (argument.isBlank()) {
+            throw new IllegalArgumentException("Supply a snapshot file path.");
+        }
+        Path path = Path.of(argument).toAbsolutePath().normalize();
+        if (command.equals("export")) {
+            if (Files.exists(path) || (dataFile != null && (path.equals(dataFile)
+                    || path.equals(dataFile.resolveSibling("borrowers.properties"))))) {
+                throw new IllegalArgumentException("Export destination already exists or is a live data path."
+                        + " Choose a new file.");
+            }
+            snapshot(borrowers.getBorrowers()).write(path);
+            return "Exported application data to " + path + ".";
+        }
+        importSnapshot(path);
+        return "Imported application data. All current records were replaced.";
+    }
+
+    /** Saves before displaying success; failure ends the session to avoid further unsaved work. */
+    private boolean saveChanges(PrintStream output) {
+        if (dataFile == null) {
+            return true;
+        }
+        try {
+            snapshot(borrowers.getBorrowers()).write(dataFile);
+            return true;
+        } catch (IOException exception) {
+            LOGGER.warning("Cannot save LabLog records; stopping the session");
+            output.println("Error: Changes could not be saved. " + TerminalText.escapeControls(exception.getMessage()));
+            output.println("Session stopped. Previous saved data is unchanged; retry after fixing file access.");
+            return false;
+        }
+    }
+
+    /**
+     * Displays the welcome message and adds an equipment unit to the inventory.
+     */
+    public void run() {
+        try (ConsoleInput input = TerminalInput.open()) {
+            run(input, ConsolePresentation.decorate(System.out, input.isInteractive()));
+        }
+    }
+
+    /**
+     * Accepts equipment add/copy, help, loan, renew, history or return commands, or exit at the
+     * initial prompt.
+     * Incomplete equipment input is discarded at EOF rather than saving a partial unit.
+     *
+     * @param scanner input owned by the caller
+     * @param output destination for prompts and results
+     */
+    public void run(Scanner scanner, PrintStream output) {
+        run(ConsoleInput.plain(scanner, output), output);
+    }
+
+    /** Shares dispatch between interactive terminal sessions and caller-owned input streams. */
+    private void run(ConsoleInput console, PrintStream output) {
+        ConsoleWelcome.print(output);
+        if (console.isInteractive()) {
+            if (console.readLine("", "Ready - press Enter to begin ") == null) {
+                return;
+            }
+            console.clearScreen();
+        }
+        ConsoleWelcome.printReady(output);
+        PrintStream destination = output;
+        while (true) {
+            String input = console.readLine("TYPE COMMAND", "lablog> ");
+            if (input == null) {
+                return;
+            }
+            if (!TerminalText.hasUnsafeControls(input) && input.strip().equals("exit")) {
+                return;
+            }
+            CommandOutput resultOutput = console.isInteractive() ? new CommandOutput(console, destination) : null;
+            if (resultOutput != null) {
+                output = resultOutput;
+            }
+            try {
+                if (TerminalText.hasUnsafeControls(input)) {
+                    output.println("Error: Input must not contain control characters.");
+                    continue;
+                }
+                input = input.strip();
+                try {
+                    String historyOutput = commandHistory.accept(input);
+                    if (historyOutput != null) {
+                        output.println(historyOutput);
+                        continue;
+                    }
+                } catch (IllegalArgumentException exception) {
+                    printError(output, exception.getMessage());
+                    continue;
+                }
+                String command = input.split("\\s+", 2)[0];
+                if (command.equals("export") || command.equals("import")) {
+                    try {
+                        output.println(Messages.ok(transfer(input, command)));
+                    } catch (IOException | IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                        output.println("Current records were not changed.");
+                    }
+                    continue;
+                }
+                if (List.of("reserve", "reservations", "edit-reservation", "cancel-reservation").contains(command)) {
+                    try {
+                        String result = reservationCommands.execute(input);
+                        output.println(command.equals("reservations") ? result : Messages.ok(result));
+                    } catch (IllegalArgumentException | IOException exception) {
+                        printError(output, exception.getMessage());
+                        output.println("Reservations were not changed.");
+                    }
+                    continue;
+                }
+                if (command.equals("wait-request") || command.equals("waiting-requests")) {
+                    try {
+                        String result = waitingCommands.execute(input);
+                        output.println(command.equals("waiting-requests") ? result : Messages.ok(result));
+                    } catch (IllegalArgumentException | IOException exception) {
+                        printError(output, exception.getMessage());
+                        output.println("Waiting requests were not changed.");
+                    }
+                    continue;
+                }
+                if (command.equals("available") || command.equals("why-unavailable")) {
+                    try {
+                        output.println(command.equals("available") ? availableEquipment.execute(input)
+                                : unavailableReasons.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("help")) {
+                    try {
+                        output.println(help.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (List.of("reservation", "fault", "maintenance", "repair").contains(command)) {
+                    try {
+                        String result = command.equals("repair") ? repairs.execute(input)
+                                : historyRecords.execute(input);
+                        if (!saveChanges(output)) {
+                            return;
+                        }
+                        output.println(Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("loan-audit")) {
+                    try {
+                        output.println(loanAudit.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("active-loans") || command.equals("overview")) {
+                    try {
+                        output.println(command.equals("overview") ? overview.execute(input)
+                                : activeLoans.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("list")) {
+                    try {
+                        output.println(equipmentList.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("edit-equipment")) {
+                    try {
+                        String result = equipmentEdit.execute(input);
+                        if (!saveChanges(output)) {
+                            return;
+                        }
+                        output.println(Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("retire")) {
+                    try {
+                        String result = retireEquipment.execute(input);
+                        if (!saveChanges(output)) {
+                            return;
+                        }
+                        output.println(Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("move-equipment")) {
+                    try {
+                        String result = equipmentMove.execute(input);
+                        if (!saveChanges(output)) {
+                            return;
+                        }
+                        output.println(Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("find")) {
+                    try {
+                        output.println(equipmentFind.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (command.equals("search")) {
+                    try {
+                        output.println(equipmentSearch.execute(input));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (List.of("history", "return", "loan", "renew", "lost", "recover", "reverse-loan", "reverse-return")
+                        .contains(command)) {
+                    try {
+                        String result = executeRecordCommand(command, input);
+                        if (!command.equals("history") && !saveChanges(output)) {
+                            return;
+                        }
+                        output.println(command.equals("history") ? result : Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (List.of("loans", "add-borrower", "edit-borrower").contains(command)) {
+                    try {
+                        String result = borrowerCommands.execute(input);
+                        output.println(command.equals("loans") ? result : Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    } catch (IOException exception) {
+                        output.println("Error: Cannot save borrower data. "
+                                + TerminalText.escapeControls(exception.getMessage()));
+                        output.println("No changes saved.");
+                    }
+                    continue;
+                }
+                if (command.equals("copy")) {
+                    try {
+                        String result = equipmentCopy.execute(input);
+                        if (!saveChanges(output)) {
+                            return;
+                        }
+                        output.println(Messages.ok(result));
+                    } catch (IllegalArgumentException exception) {
+                        printError(output, exception.getMessage());
+                    }
+                    continue;
+                }
+                if (!command.equals("add")) {
+                    LOGGER.fine("Rejected unknown command");
+                    output.println("Error: Unknown command. Use help for commands.");
+                    continue;
+                }
+                String[] addParts = input.split("\\s+", 3);
+                try {
+                    String result;
+                    if (addParts.length == 2) {
+                        String assetId = addParts[1];
+                        if (inventory.containsAssetId(assetId)) {
+                            output.println("Error: Equipment " + assetId + " already exists.");
+                            continue;
+                        }
+                        Equipment equipment = readEquipment(assetId, console, output);
+                        if (equipment == null) {
+                            LOGGER.fine("Discarded incomplete equipment registration at end of input");
+                            output.println("Equipment not added: incomplete input.");
+                            return;
+                        }
+                        inventory.addEquipment(equipment);
+                        result = "Equipment added to inventory.";
+                    } else {
+                        result = equipmentAdd.execute(input);
+                    }
+                    if (!saveChanges(output)) {
+                        return;
+                    }
+                    output.println(Messages.ok(result));
+                } catch (RegistrationCancelledException exception) {
+                    output.println("Equipment registration cancelled.");
+                } catch (IllegalArgumentException exception) {
+                    printError(output, exception.getMessage());
+                }
+            } finally {
+                output = destination;
+                if (resultOutput != null) {
+                    resultOutput.showPending();
+                    resultOutput.close();
+                }
+            }
+        }
+    }
+
+    /**
+     * Runs one command that reads or changes the shared equipment and loan records.
+     *
+     * @param command first word of the input
+     * @param input complete command line
+     * @return text to display
+     */
+    private String executeRecordCommand(String command, String input) {
+        // Only the record-command branch in run should call this helper.
+        assert List.of("history", "return", "loan", "renew", "lost", "recover", "reverse-loan", "reverse-return")
+                .contains(command) : "Unexpected record command";
+        switch (command) {
+        case "history":
+            return history.execute(input);
+        case "return":
+            return returns.execute(input);
+        case "loan":
+            loanCommands.execute(input);
+            return loanConfirmation(input);
+        case "renew":
+            return renewals.execute(input);
+        case "recover":
+        case "lost":
+            return lost.execute(input);
+        case "reverse-loan":
+        case "reverse-return":
+            return corrections.execute(input);
+        default:
+            throw new IllegalArgumentException("Unknown command: " + command);
+        }
+    }
+
+    /** Builds display details from the loans actually issued by a successful command. */
+    private String loanConfirmation(String input) {
+        StringBuilder confirmation = new StringBuilder("Loan recorded.");
+        String[] words = input.strip().split("\\s+");
+        for (int i = 1; i < words.length && !words[i].contains("/"); i++) {
+            String assetId = words[i];
+            Loan issued = loans.getLoans().stream()
+                    .filter(loan -> loan.isActive() && loan.getAssetId().equals(assetId))
+                    .findFirst().orElseThrow();
+            confirmation.append("\n  Asset     ").append(assetId)
+                    .append("\n  Borrower  ").append(issued.getBorrowerId())
+                    .append("\n  Issued    ").append(issued.getLoanDate())
+                    .append("\n  Due       ").append(issued.getDueDate());
+        }
+        return confirmation.toString();
+    }
+
+    /** Prints safe diagnostic text and an actionable hint when its meaning is known. */
+    private static void printError(PrintStream output, String message) {
+        output.println("Error: " + TerminalText.escapeControls(message));
+        String hint = ConsolePresentation.errorHint(message);
+        if (!hint.isEmpty()) {
+            output.println("  " + hint);
+        }
+    }
+
+    /**
+     * Prompts for the remaining details after the initial asset ID input.
+     *
+     * @param assetId identifier supplied at the initial prompt
+     * @param console reads the user's input
+     * @param output destination for prompts
+     * @return equipment unit created from the input, or null if input ends prematurely
+     */
+    private Equipment readEquipment(String assetId, ConsoleInput console, PrintStream output) {
+        // The initial prompt must validate the identifier before requesting equipment details.
+        assert assetId != null && !assetId.isEmpty()
+                && assetId.chars().noneMatch(Character::isWhitespace) : "Expected a validated asset ID";
+        String[] prompts = {"name", "category", "model", "location"};
+        String[] details = new String[prompts.length];
+        output.println("\nADD EQUIPMENT / " + assetId);
+        output.println("Type cancel at any prompt to discard.");
+        if (output instanceof CommandOutput resultOutput) {
+            resultOutput.showPending();
+        }
+        for (int i = 0; i < prompts.length; i++) {
+            String field = prompts[i].substring(0, 1).toUpperCase() + prompts[i].substring(1);
+            String step = "STEP " + (i + 1) + " OF " + prompts.length;
+            details[i] = console.readLine(field.toUpperCase() + " / " + step,
+                    field + " [" + (i + 1) + "/" + prompts.length + "]> ");
+            if (details[i] == null) {
+                return null;
+            }
+            if (details[i].strip().equals("cancel")) {
+                throw new RegistrationCancelledException();
+            }
+        }
+        return new Equipment(assetId, details[0], details[1], details[2], details[3]);
+    }
+
+    /** Separates an explicit cancellation from EOF, which closes the console. */
+    private static class RegistrationCancelledException extends RuntimeException {
+    }
+}

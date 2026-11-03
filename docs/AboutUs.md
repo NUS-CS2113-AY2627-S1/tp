@@ -1,9 +1,11 @@
 # About us
 
-Display | Name | Github Profile | Portfolio 
---------|:----:|:--------------:|:---------:
-![](https://via.placeholder.com/100.png?text=Photo) | John Doe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Joe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Ron John | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | John Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
+| Name | GitHub profile | Portfolio |
+| --- | --- | --- |
+| Kim Doyeon | [doyk0215](https://github.com/doyk0215) | [Portfolio](team/doyk0215.md) |
+| Lulu Wen | [lulu-wen](https://github.com/lulu-wen) | [Portfolio](team/lulu-wen.md) |
+| Kwan Tze | [YamYamui](https://github.com/YamYamui) | [Portfolio](team/yamyamui.md) |
+| Zeph | [zephtzk](https://github.com/zephtzk) | [Portfolio](team/zephtzk.md) |
+| Yuncong Shen | [yuncongshen](https://github.com/yuncongshen) | [Portfolio](team/yuncongshen.md) |
+
+[Contribution evidence audit and PPP export instructions](team/contribution-evidence.md)
