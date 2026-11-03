@@ -1,0 +1,38 @@
+@startuml
+' Restore one saved task during loadTasks; file reading and other records are omitted.
+hide footbox
+
+participant ":DataStorage" as Storage
+participant ":ProjectManager" as PM
+
+[-> Storage : loadTasks(data, projects)
+activate Storage
+note over Storage, PM
+  The file contains one task, T001, for P001.
+  Clients and projects have already been loaded.
+end note
+Storage -> PM : advanceNextNumbers(...)
+activate PM
+note right of PM : Set the next task number to\nthe numeric part of saved ID T001.
+PM --> Storage
+deactivate PM
+Storage -> PM : addTask("P001", description, date)
+activate PM
+create participant "t:Task" as T
+PM -> T : Task("T001", ...)
+activate T
+T --> PM
+deactivate T
+note over PM, T : Project lookup, task registration and\ncounter increment are omitted.
+PM --> Storage : t
+deactivate PM
+opt saved completed value is true
+    Storage -> T : markCompleted()
+    activate T
+    T --> Storage
+    deactivate T
+end
+[<-- Storage
+deactivate Storage
+
+@enduml

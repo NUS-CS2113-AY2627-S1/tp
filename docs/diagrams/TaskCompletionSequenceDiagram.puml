@@ -1,0 +1,39 @@
+@startuml
+' Successful execution of task.mark T001; task.unmark uses markTaskIncomplete.
+hide footbox
+
+actor User
+participant ":CommandHandler" as CH
+participant ":ProjectManager" as PM
+participant "task:Task" as T
+participant ":Ui" as UI
+
+User -> CH : execute("task.mark T001")
+activate CH
+note right of CH : CommandParser routing and\nseparator output are omitted.
+CH -> CH : handleTaskMark("T001")
+activate CH
+CH -> PM : markTaskComplete("T001")
+activate PM
+PM -> PM : getTask("T001")
+activate PM
+note right of PM : Searches active projects' tasks.\nReturns the task with ID T001.
+PM --> PM : task
+deactivate PM
+PM -> T : markCompleted()
+activate T
+note right of T : completed becomes true.
+T --> PM
+deactivate T
+PM --> CH : task
+deactivate PM
+CH -> UI : showTaskMarked(task)
+activate UI
+UI --> CH
+deactivate UI
+' Return from handleTaskMark to the still-active execute invocation.
+return
+||15||
+deactivate CH
+
+@enduml

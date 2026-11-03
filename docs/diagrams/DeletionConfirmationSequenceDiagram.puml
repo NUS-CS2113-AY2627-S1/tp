@@ -1,0 +1,103 @@
+@startuml
+' Confirmation input handling; command validation and model deletion details are omitted.
+hide footbox
+skinparam defaultFontSize 14
+skinparam maxMessageSize 160
+
+actor User
+participant ":BusyNotFree" as App
+participant ":CommandHandler" as CH
+participant ":Ui" as UI
+
+User -> App : valid deletion request
+activate App
+
+App -> CH : execute(request)
+activate CH
+
+note right of CH
+  validate and retain pending selection
+end note
+
+CH -> UI : show deletion confirmation
+activate UI
+deactivate UI
+
+CH --> App : false
+deactivate CH
+
+note over App, CH
+  While confirmation is pending, normal command parsing
+  and standalone save handling are bypassed.
+end note
+
+loop zero or more invalid confirmation answers
+  User -> App : other input, including help / save / exit
+
+  App -> CH : execute(input)
+  activate CH
+
+  CH -> UI : show error and repeat confirmation
+  activate UI
+  deactivate UI
+
+  CH --> App : false
+  deactivate CH
+end
+
+alt user confirms
+  User -> App : "yes"
+
+  App -> CH : execute("yes")
+  activate CH
+
+  CH -> CH : handleDeletionConfirmation("yes")
+  activate CH
+
+  note right of CH
+    Model interactions are omitted here.
+    See ProjectDeletionSequenceDiagram.
+  end note
+
+  CH -> UI : show deletion result
+  activate UI
+  deactivate UI
+  deactivate CH
+
+  CH --> App : false
+  deactivate CH
+else user cancels
+  User -> App : "no"
+
+  App -> CH : execute("no")
+  activate CH
+
+  CH -> CH : cancelPendingDeletion()
+  activate CH
+
+  CH -> UI : show cancellation message
+  activate UI
+  deactivate UI
+  deactivate CH
+
+  CH --> App : false
+  deactivate CH
+else input ends
+  User -> App : end of input
+
+  App -> CH : cancelPendingDeletion()
+  activate CH
+
+  CH -> UI : show cancellation message
+  activate UI
+  deactivate UI
+  CH --> App
+  deactivate CH
+
+  App -> App : saveAndReportExit()
+  activate App
+  deactivate App
+  deactivate App
+  note right of App : run() returns after the save attempt\nbecause no further input is available.
+end
+@enduml

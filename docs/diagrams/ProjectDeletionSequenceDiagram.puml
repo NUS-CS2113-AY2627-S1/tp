@@ -1,0 +1,68 @@
+@startuml
+' Successful deletion after the user confirms; failed snapshot storage never removes active data.
+hide footbox
+skinparam defaultFontSize 14
+skinparam maxMessageSize 145
+
+actor User
+participant ":CommandHandler" as CH
+participant ":ProjectManager" as PM
+participant ":TrashcanManager" as TM
+participant "project:Project" as P
+participant ":Ui" as UI
+
+User -> CH : execute("project.delete P001")
+activate CH
+CH -> PM : getProject("P001")
+activate PM
+PM --> CH : project
+deactivate PM
+note right of CH
+  retain pending selection
+end note
+CH -> UI : showProjectDeleteConfirmation(project)
+activate UI
+deactivate UI
+deactivate CH
+
+note over CH, P
+  The active project is unchanged.
+end note
+
+User -> CH : execute("yes")
+activate CH
+note right of CH
+  clear pending selection
+end note
+CH -> PM : deleteProject("P001")
+activate PM
+PM -> TM : storeProject(project)
+activate TM
+TM -> P : copy()
+activate P
+P --> TM : independent project and activities
+deactivate P
+note right of TM
+  retain snapshot
+end note
+TM --> PM : snapshot stored
+deactivate TM
+PM -> P : removeAllActivities()
+activate P
+P --> PM : removedCount
+deactivate P
+note right of PM
+  remove active project
+end note
+PM --> CH : removedCount
+deactivate PM
+CH -> UI : showProjectDeleted(...)
+activate UI
+deactivate UI
+deactivate CH
+
+note over PM, TM
+  Snapshot validation and copying finish
+  before active records are removed.
+end note
+@enduml
