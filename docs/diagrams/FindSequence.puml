@@ -1,0 +1,46 @@
+@startuml
+' Original diagram and find implementation: Kaishhhh.
+' Activation notation revisions: Eethanzyj.
+skinparam shadowing false
+skinparam defaultFontSize 14
+hide footbox
+
+participant ":BakerCli" as Cli
+participant "<<class>>\nParser" as Parser
+participant "f:FindCommand" as Find
+participant "orders:OrderList" as Orders
+
+[-> Cli : "find alice"
+activate Cli
+Cli -> Parser : parseFind("find alice")
+activate Parser
+Parser --> Cli : "alice"
+deactivate Parser
+
+create Find
+Cli -> Find : new FindCommand("alice")
+activate Find
+deactivate Find
+Cli -> Find : execute(orders)
+activate Find
+Find -> Orders : getAll()
+activate Orders
+Orders --> Find : records
+deactivate Orders
+
+loop for each record
+  opt name, flavour or filling contains "alice" (ignoring case)
+    Find -> Find : add record to matches
+    activate Find
+    deactivate Find
+  end
+end
+
+Find --> Cli : message listing the matches
+deactivate Find
+Cli -> Cli : print message
+activate Cli
+deactivate Cli
+[<-- Cli
+deactivate Cli
+@enduml

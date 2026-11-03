@@ -1,0 +1,186 @@
+package seedu.duke.model;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+/**
+ * Represents a customer enquiry or a confirmed cake order.
+ */
+public class Order {
+    //@@author Eethanzyj
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-uuuu");
+
+    private final String orderId;
+    //@@author
+    private final Customer customer;
+    private final Cake cake;
+    //@@author Eethanzyj
+    private final LocalDate dueDate;
+    //@@author
+    private OrderStatus status;
+    //@@author anannya-mk
+    private String customerId;
+    //@@author
+    /** Free-text notes for allergens, special decorations, etc. Empty string means no notes. */
+    private String notes = "";
+
+    /**
+     * Creates a basic order with a customer and due date.
+     */
+    public Order(String orderId, Customer customer, LocalDate dueDate) {
+        this(orderId, customer, null, dueDate, OrderStatus.QUEUED);
+    }
+
+    /**
+     * Creates a confirmed order with cake details and a due date.
+     */
+    public Order(String orderId, Customer customer, Cake cake, LocalDate dueDate) {
+        this(orderId, customer, cake, dueDate, OrderStatus.QUEUED);
+    }
+
+    /**
+     * Creates an enquiry or order with an explicit starting status.
+     */
+    public Order(String orderId, Customer customer, Cake cake, LocalDate dueDate, OrderStatus status) {
+        this.orderId = orderId;
+        this.customer = customer;
+        this.cake = cake;
+        this.dueDate = dueDate;
+        this.status = status;
+        this.notes = "";
+    }
+
+    //@@author Eethanzyj
+    public String getOrderId() {
+        return orderId;
+    }
+    //@@author
+
+    public Customer getCustomer() {
+        return customer;
+    }
+
+    public Cake getCake() {
+        return cake;
+    }
+
+    //@@author Eethanzyj
+    public LocalDate getDueDate() {
+        return dueDate;
+    }
+    //@@author
+
+    public OrderStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(OrderStatus status) {
+        //@@author WillChin484848
+        if (status == null) {
+            throw new IllegalArgumentException("Order status cannot be null.");
+        }
+        //@@author
+        this.status = status;
+    }
+
+    //@@author anannya-mk
+    /**
+     * Returns the ID of the customer who placed this order, such as C001.
+     * It is null for enquiries, which do not have a customer ID until they are accepted.
+     */
+    public String getCustomerId() {
+        return customerId;
+    }
+
+    /**
+     * Sets the customer ID. It is assigned once when the order is added and never changes afterwards,
+     * even if the customer's name or phone number is edited.
+     */
+    public void setCustomerId(String customerId) {
+        this.customerId = customerId;
+    }
+    //@@author
+    public String getNotes() {
+        return notes;
+    }
+
+    /** Sets free-text notes on this order. Pass an empty string to clear notes. */
+    public void setNotes(String notes) {
+        this.notes = notes != null ? notes : "";
+    }
+
+    /**
+     * Returns true when this record is still a customer enquiry.
+     */
+    public boolean isEnquiry() {
+        return status == OrderStatus.ENQUIRY;
+    }
+
+    /**
+     * Creates an updated copy of this order.
+     * Unchanged fields retain their original values.
+     *
+     * @param newCustomer Updated customer, or null to keep the existing customer.
+     * @param newCake Updated cake, or null to keep the existing cake.
+     * @param newDueDate Updated due date, or null to keep the existing date.
+     * @return The updated order.
+     */
+    public Order updatedCopy(Customer newCustomer, Cake newCake, LocalDate newDueDate) {
+        Customer updatedCustomer = newCustomer != null ? newCustomer : customer;
+        Cake updatedCake = newCake != null ? newCake : cake;
+        LocalDate updatedDueDate = newDueDate != null ? newDueDate : dueDate;
+        Order updatedOrder = new Order(orderId, updatedCustomer, updatedCake, updatedDueDate, status);
+        updatedOrder.customerId = customerId;
+        updatedOrder.setNotes(this.notes);
+        return updatedOrder;
+    }
+
+    /**
+     * Returns the full details of this order or enquiry.
+     */
+    public String toDetailedString() {
+        String nl = System.lineSeparator();
+        String idLabel = isEnquiry() ? "Enquiry ID: " : "Order ID: ";
+        StringBuilder details = new StringBuilder();
+        details.append(idLabel).append(orderId).append(nl)
+                .append("Customer: ").append(customer).append(nl);
+        if (dueDate != null) {
+            details.append("Due date: ").append(dueDate.format(DATE_FORMATTER)).append(nl);
+        }
+        if (cake != null) {
+            details.append("Size: ").append(cake.getSize()).append(" inches").append(nl)
+                    .append("Flavour: ").append(cake.getFlavour()).append(nl)
+                    .append("Filling: ").append(cake.getFilling()).append(nl);
+        }
+        details.append("Status: ").append(status);
+        if (!notes.isEmpty()) {
+            details.append(nl).append("Notes: ").append(notes);
+        }
+        return details.toString();
+    }
+
+
+    @Override
+    public String toString() {
+        if (orderId != null) {
+            //@@author WillChin484848
+            // Display a placeholder when an order has no due date.
+            String dueDateText = dueDate != null
+                    ? dueDate.format(DATE_FORMATTER) : "Not specified";
+            //@@author
+
+            if (cake != null) {
+                return orderId + ": " + customer + " | Due: " + dueDateText
+                        + " | Size: " + cake.getSize() + " inches | Flavour: " + cake.getFlavour()
+                        + " | Filling: " + cake.getFilling() + " [" + status + "]";
+            }
+
+            return orderId + ": " + customer.getName() + " (due "
+                    + dueDateText + ") [" + status + "]";
+        }
+        //@@author Eethanzyj
+        // Keep diagnostic output safe for in-memory records without an assigned ID.
+        return customer + " [" + status + "]";
+        //@@author
+    }
+}

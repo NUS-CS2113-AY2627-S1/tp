@@ -1,0 +1,61 @@
+@startuml
+' Author: Eethanzyj
+!pragma layout smetana
+title Add Order: selected classes and relationships
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 16
+skinparam classAttributeIconSize 0
+hide empty members
+
+class BakerCli {
+}
+class Parser {
+  {static} + parseAdd(input: String): AddOrderDetails
+}
+class AddOrderParser {
+  {static} + parse(input: String): Parser.AddOrderDetails
+}
+class FieldTokenizer {
+}
+class OrderList {
+  + generateOrderId(): String
+  + add(order: Order): void
+}
+class AddOrderCommand {
+  - details: Parser.AddOrderDetails
+  + execute(orders: OrderList): String
+}
+class Order {
+  - orderId: String
+  - customerId: String
+  - dueDate: LocalDate
+  - status: OrderStatus
+}
+class Customer {
+  - name: String
+  - phone: String
+}
+class Cake {
+  - size: int
+  - flavour: String
+  - filling: String
+}
+
+BakerCli ..> Parser : parses
+Parser ..> AddOrderParser : delegates
+Parser ..> FieldTokenizer : edit fields
+AddOrderParser ..> FieldTokenizer : quoted values
+BakerCli ..> AddOrderCommand : creates and runs
+AddOrderCommand ..> OrderList : adds order
+AddOrderCommand ..> Order : creates
+OrderList "1" --> "0..*" Order : stores
+Order "0..*" --> "1" Customer
+Order "0..*" --> "0..1" Cake
+
+legend bottom
+  Selected members only. Dashed arrows show dependencies;
+  solid arrows show stored references, with multiplicities.
+  Add Order always supplies a Customer and Cake.
+endlegend
+@enduml

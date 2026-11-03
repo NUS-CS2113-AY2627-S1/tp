@@ -1,21 +1,99 @@
 package seedu.duke;
 
+//@@author HammerHead-os
+
+import java.nio.file.Path;
 import java.util.Scanner;
+//@@author Kaishhhh
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Handler;
+//@@author HammerHead-os
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
+import seedu.duke.model.OrderList;
+import seedu.duke.storage.Storage;
+
+/**
+ * Runs the CakeQueue command-line application.
+ */
 public class Duke {
-    /**
-     * Main entry-point for the java.duke.Duke application.
-     */
-    public static void main(String[] args) {
-        String banner = " ____        _        \n"
-                + "|  _ \\ _   _| | _____ \n"
-                + "| | | | | | | |/ / _ \\\n"
-                + "| |_| | |_| |   <  __/\n"
-                + "|____/ \\__,_|_|\\_\\___|\n";
-        System.out.println(banner);
-        System.out.println("What is your name?");
+    //@@author Eethanzyj
+    private static final Logger LOGGER = Logger.getLogger(Duke.class.getName());
+    //@@author HammerHead-os
+    private static final Path DEFAULT_DATA_FILE = Path.of("data", "cakequeue.txt");
 
-        Scanner in = new Scanner(System.in);
-        System.out.println("Hello " + in.nextLine());
+    private final Path dataFile;
+
+    /**
+     * Creates the application using the default data file ({@code data/cakequeue.txt}
+     * relative to the folder the app is launched from).
+     */
+    public Duke() {
+        this(DEFAULT_DATA_FILE);
+    }
+
+    /**
+     * Creates the application with an explicit data file.
+     * Tests use this to run against a temporary file instead of real data.
+     */
+    public Duke(Path dataFile) {
+        assert dataFile != null : "Data file path must not be null";
+        this.dataFile = dataFile;
+    }
+
+    /**
+     * Loads saved records, then runs the baker interface until exit.
+     * Every successful change is saved immediately, so closing the app (or a
+     * crash) after a change does not lose it.
+     */
+    //@@author Eethanzyj
+    public void run() {
+        Scanner scanner = new Scanner(System.in);
+        //@@author HammerHead-os
+        Storage storage = new Storage(dataFile);
+        //@@author WillChin484848
+        OrderList orders;
+        try {
+            orders = storage.load();
+        } catch (IllegalStateException exception) {
+            System.out.println("Error: Saved data could not be loaded safely. CakeQueue will exit "
+                    + "without changing the file. Back up data/cakequeue.txt, repair the "
+                    + "invalid records or restore a valid backup, then restart.");
+            LOGGER.log(Level.SEVERE, "Startup aborted to protect saved data", exception);
+            return;
+        }
+        //@@author HammerHead-os
+        if (orders.size() > 0) {
+            System.out.println("Loaded " + orders.size() + " saved record(s).");
+        }
+        Runnable saveChanges = () -> {
+            if (!storage.save(orders)) {
+                System.out.println("Warning: Could not save your data. "
+                        + "Your changes are kept for this session only.");
+                LOGGER.log(Level.WARNING, "Save failed for {0}; continuing in-memory.", dataFile);
+            }
+        };
+        //@@author Eethanzyj
+        System.out.println("Hello! I'm CakeQueue.");
+        //@@author HammerHead-os
+        new BakerCli().run(scanner, orders, saveChanges);
+    }
+
+    /**
+     * Launches CakeQueue.
+     */
+    //@@author Eethanzyj
+    public static void main(String[] args) {
+        //@@author Kaishhhh
+        // Developer logs stay off the console; normal warnings are printed separately.
+        for (Handler handler : Logger.getLogger("").getHandlers()) {
+            if (handler instanceof ConsoleHandler) {
+                handler.setLevel(Level.OFF);
+            }
+        }
+        //@@author Eethanzyj
+        new Duke().run();
+        //@@author HammerHead-os
     }
 }

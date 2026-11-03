@@ -1,0 +1,34 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+skinparam defaultFontSize 14
+hide empty members
+
+class Duke
+class BakerCli
+class Parser <<utility>>
+class "XYZCommand" as Command
+class OrderList
+class Order
+class Storage
+class CakeQueueException
+
+Duke --> BakerCli : runs
+Duke --> Storage : loads and saves
+Duke --> OrderList : owns
+
+BakerCli ..> Parser
+BakerCli ..> Command
+Command ..> OrderList : reads/changes
+Storage ..> OrderList : fills/reads
+OrderList "1" --> "*" Order : stores
+
+Parser ..> CakeQueueException : throws
+Command ..> CakeQueueException : throws
+
+note right of Command
+  XYZCommand stands for the command
+  classes, such as FindCommand and
+  CapacityCommand.
+end note
+@enduml

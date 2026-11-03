@@ -24,6 +24,8 @@ dependencies {
 }
 
 test {
+    // Assertions must be enabled so `assert` statements in production code are checked during tests.
+    enableAssertions = true
     useJUnitPlatform()
 
     testLogging {
@@ -49,7 +51,7 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'cakequeue.jar'
 }
 
 checkstyle {
@@ -58,4 +60,5 @@ checkstyle {
 
 run {
     standardInput = System.in
+    enableAssertions = true
 }

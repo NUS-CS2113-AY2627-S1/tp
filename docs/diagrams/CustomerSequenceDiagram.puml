@@ -1,0 +1,49 @@
+@startuml CustomerSequenceDiagram
+' Original diagram: Kaishhhh; customer implementation: anannya-mk.
+' Diagram integration, activation and constructor revisions: Eethanzyj.
+skinparam shadowing false
+skinparam defaultFontSize 14
+hide footbox
+
+participant ":BakerCli" as Cli
+participant "<<class>>\nParser" as Parser
+participant ":CustomerCommand" as Cmd
+participant "<<class>>\nCustomerList" as Factory
+participant "orders:OrderList" as Orders
+participant "customers:CustomerList" as Customers
+
+activate Cli
+Cli -> Parser : parseCustomer("customer c001")
+activate Parser
+Parser --> Cli : "C001"
+deactivate Parser
+create Cmd
+Cli -> Cmd : new CustomerCommand("C001")
+activate Cmd
+deactivate Cmd
+Cli -> Cmd : execute(orders)
+activate Cmd
+Cmd -> Factory : fromOrders(orders)
+activate Factory
+Factory -> Orders : getAll()
+activate Orders
+Orders --> Factory : records
+deactivate Orders
+note right of Factory
+  Group confirmed orders by Customer ID.
+  Build profiles and the phone-to-ID map.
+end note
+create Customers
+Factory -> Customers : new CustomerList(profiles, customerIdByPhone)
+activate Customers
+deactivate Customers
+Factory --> Cmd : customers
+deactivate Factory
+Cmd -> Customers : getById("C001")
+activate Customers
+Customers --> Cmd : profile
+deactivate Customers
+Cmd --> Cli : customer details text
+deactivate Cmd
+deactivate Cli
+@enduml

@@ -1,0 +1,40 @@
+@startuml
+' Author: Eethanzyj
+title Add Order: validate before changing data
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 16
+skinparam sequenceMessageAlign center
+hide footbox
+
+actor Baker
+participant ":BakerCli" as Cli
+participant "<<class>>\nParser" as Parser
+participant "<<class>>\nAddOrderParser" as AddParser
+
+Baker -> Cli : add command
+activate Cli
+Cli -> Parser : parseAdd(input)
+activate Parser
+Parser -> AddParser : parse(input)
+activate AddParser
+note over Parser, AddParser
+  Use FieldTokenizer for quoted values.
+  Check prefixes, six non-blank fields,
+  phone, strict date and cake size.
+end note
+AddParser --> Parser : details, or throws CakeQueueException
+deactivate AddParser
+Parser --> Cli : details, or propagates exception
+deactivate Parser
+alt invalid input
+  Cli --> Baker : Error: <message>
+  note over Cli, AddParser
+    No ID generation, order creation or save.
+    The CLI continues with the next command.
+  end note
+else valid input
+  note over Cli, AddParser : Next: create the order (separate diagram).
+end
+deactivate Cli
+@enduml
