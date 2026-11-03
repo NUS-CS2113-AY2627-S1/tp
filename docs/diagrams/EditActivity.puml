@@ -1,0 +1,34 @@
+@startuml
+!include style.puml
+
+start
+:editModule called;
+if () then ([index out of range])
+    :throw InvalidIndexException;
+    stop
+else ([else])
+endif
+if () then ([no field given])
+    :throw EditException;
+    stop
+else ([else])
+endif
+if () then ([credits not from 1 to 40])
+    :throw EditException;
+    stop
+else ([else])
+endif
+if () then ([new code used by another module])
+    :throw EditException;
+    stop
+else ([else])
+endif
+if () then ([S/U-ed and new credits\nexceed the S/U quota])
+    :throw EditException;
+    stop
+else ([else])
+endif
+:apply the given fields\nto the module;
+:return the edited module;
+stop
+@enduml

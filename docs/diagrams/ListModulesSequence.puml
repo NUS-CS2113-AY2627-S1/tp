@@ -1,0 +1,37 @@
+@startuml
+!include style.puml
+
+participant ":CommandManager" as CM
+participant "<<class>>\nListCommand" as LC
+participant ":ListCommand" as L
+participant ":Student" as S
+participant ":Module" as M
+
+[-> CM ++ : processQuery("list")
+CM -> LC ++ : parse("list")
+create L
+LC -> L : ListCommand()
+activate L
+L --> LC
+deactivate L
+LC --> CM -- : Optional.of(command)
+
+CM -> L ++ : execute(student)
+L -> L ++ : buildModuleList(student)
+L -> S ++ : getModuleCount()
+S --> L -- : count
+alt count is 0
+    L --> L : "No modules recorded yet."
+else count > 0
+    loop for each index from 1 to count
+        L -> S ++ : getModule(index)
+        S --> L -- : module
+        L -> M ++ : toString()
+        M --> L -- : "CS2113 | 4 MCs | Grade: A-"
+    end
+    L --> L -- : heading and numbered lines
+end
+L --> CM -- : Response(message)
+destroy L
+[<-- CM -- : Response
+@enduml
