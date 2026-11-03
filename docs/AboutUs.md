@@ -1,9 +1,8 @@
 # About us
 
-Display | Name | Github Profile | Portfolio 
---------|:----:|:--------------:|:---------:
-![](https://via.placeholder.com/100.png?text=Photo) | John Doe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Joe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Ron John | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | John Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
+|                          Display                           | Name | GitHub Profile |                        Portfolio                         |
+|:----------------------------------------------------------:|:---:|:---:|:--------------------------------------------------------:|
+| ![](https://avatars.githubusercontent.com/u/191274162?v=4) | Muhammad Shaheer Bin Farid | [shaheerfarid](https://github.com/shaheerfarid) |     [Portfolio](team/shaheerfarid.md)      |
+|                  ![](images/nickyi29.jpg)                  | TI KYI KYAW | [Nickyi29](https://github.com/Nickyi29) |              [Portfolio](team/nickyi29.md)               |
+|               ![William](images/william.jpg)               | RASMUSSEN WILLIAM KENTO| [WilliamKentoRasmussen](https://github.com/WilliamKentoRasmussen) | [Portfolio](team/william.md) |
+|                   ![](images/rd-7r.jpg)                    | MUN JIA HAO| [Rd-7r](https://github.com/Rd-7r) |         [Portfolio](team/rd-7r.md)         

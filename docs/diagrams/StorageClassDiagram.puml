@@ -1,0 +1,46 @@
+@startuml
+' Storage component: StorageFile saves and loads the data files, using Encoder and Decoder.
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam defaultFontSize 14
+skinparam nodesep 60
+skinparam ranksep 70
+hide circle
+hide empty members
+
+class BudgetBite
+
+class StorageFile {
+    -expensesPath: Path
+    -ratingsPath: Path
+    -budgetPath: Path
+    +save(r: RatingsManager, e: ExpensesManager, b: BudgetManager)
+    +loadRatings(): RatingsManager
+    +loadExpenses(): ExpensesManager
+    +loadBudget(): BudgetManager
+}
+
+class Encoder {
+    {static} +encodeRatings(r: RatingsManager): ArrayList<String>
+    {static} +encodeExpenses(e: ExpensesManager): ArrayList<String>
+}
+
+class Decoder {
+    {static} +decodeRatings(lines: List<String>): RatingsManager
+    {static} +decodeExpenses(lines: List<String>): ExpensesManager
+}
+
+class RatingsManager
+class ExpensesManager
+class BudgetManager
+
+BudgetBite --> "storage\n1" StorageFile
+StorageFile ..> Encoder : turns data\ninto lines with
+StorageFile ..> Decoder : turns lines\ninto data with
+StorageFile ..> RatingsManager : saves and\nloads
+StorageFile ..> ExpensesManager : saves and\nloads
+StorageFile ..> BudgetManager : saves and\nloads
+
+RatingsManager -[hidden]right- ExpensesManager
+ExpensesManager -[hidden]right- BudgetManager
+@enduml

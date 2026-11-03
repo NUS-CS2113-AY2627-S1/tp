@@ -1,0 +1,36 @@
+@startuml
+' The stages of MenuNavigator and the input that moves between them.
+skinparam shadowing false
+skinparam defaultFontSize 14
+hide empty description
+
+state "Inactive" as INACTIVE : main menu
+state "Selecting food court" as LOC : food courts listed
+state "Selecting stall" as STALL : stalls of the food court listed
+state "Showing menu" as MENU : numbered dishes and prices listed
+state "Rating dish" as RATE : asked for a score
+
+[*] --> INACTIVE
+INACTIVE --> LOC : location
+LOC --> STALL : valid food court number
+STALL --> MENU : valid stall number
+MENU --> RATE : valid dish number
+RATE --> MENU : valid score\n/ rating saved
+RATE --> MENU : back\n/ rating cancelled
+
+MENU --> STALL : back
+STALL --> LOC : back
+LOC --> INACTIVE : back
+
+LOC --> LOC : invalid number\n/ error shown
+STALL --> STALL : invalid number\n/ error shown
+MENU --> MENU : invalid number\n/ error shown
+RATE --> RATE : invalid score\n/ error shown
+
+note right of INACTIVE
+  From any stage:
+  * home goes to Inactive
+  * location goes to Selecting food court
+  * FOOD_COURT / STALL goes to Showing menu
+end note
+@enduml

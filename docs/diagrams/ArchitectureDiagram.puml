@@ -1,0 +1,49 @@
+@startuml
+' Architecture: the main parts of BudgetBite and how they depend on each other.
+skinparam shadowing false
+skinparam defaultFontSize 14
+skinparam componentStyle rectangle
+skinparam nodesep 50
+skinparam ranksep 70
+
+component "BudgetBite\n(main)" as Main
+
+package "UI" as UiPkg {
+    component TextUi
+}
+package "Parser and Command" as CmdPkg {
+    component Parser
+    component Command
+}
+package "Navigation" as NavPkg {
+    component MenuNavigator
+    component FoodDirectory
+}
+package "Storage" as StoPkg {
+    component StorageFile
+}
+package "Model" as Model {
+    component RatingsManager
+    component ExpensesManager
+    component BudgetManager
+}
+database "data/*.txt" as Data
+
+RatingsManager -[hidden]right- ExpensesManager
+ExpensesManager -[hidden]right- BudgetManager
+
+Main --> TextUi : reads input,\nshows responses
+Main --> Parser : parses commands
+Main --> Command : executes
+Main --> MenuNavigator : navigation input
+Main --> StorageFile : loads at start,\nsaves after each input
+
+Parser .right.> Command : creates
+MenuNavigator -right-> FoodDirectory
+Command --> Model : reads and\nchanges data
+Command --> FoodDirectory : checks names
+Command ..> MenuNavigator : rate ? opens
+MenuNavigator --> Model : adds ratings
+StorageFile ..> Model : saves and loads
+StorageFile --> Data : reads/writes
+@enduml

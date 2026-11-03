@@ -1,4 +1,4 @@
-# Duke project template
+# NUS BudgetBites project template
 
 This is a project template for a greenfield Java project. It's named after the Java mascot _Duke_. Given below are instructions on how to use it.
 
@@ -41,7 +41,7 @@ Prerequisites: JDK 25 (use the exact version), update Intellij to the most recen
 
 ### JUnit tests
 
-* A skeleton JUnit test (`src/test/java/seedu/duke/DukeTest.java`) is provided with this project template. 
+* A skeleton JUnit test (`src/test/java/seedu/duke/BudgetBiteTest.java`) is provided with this project template. 
 * If you are new to JUnit, refer to the [JUnit Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/junit.html).
 
 ## Checkstyle

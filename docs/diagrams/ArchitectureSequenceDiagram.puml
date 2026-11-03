@@ -1,0 +1,55 @@
+@startuml
+' How the main parts work together when the user enters "delete-expense 1".
+skinparam shadowing false
+skinparam defaultFontSize 14
+hide footbox
+
+actor User
+participant ":TextUi" as Ui
+participant ":BudgetBite" as Main
+participant ":Parser" as P
+participant ":ExpensesManager" as E
+participant ":StorageFile" as S
+
+activate Main
+Main -> Ui : getUserCommand()
+activate Ui
+User -> Ui : types "delete-expense 1"
+Ui --> Main : "delete-expense 1"
+deactivate Ui
+
+Main -> P : parseCommand("delete-expense 1")
+activate P
+create "c:DeleteExpenseCommand" as C
+P -> C : new DeleteExpenseCommand("1", expensesManager)
+activate C
+C --> P
+deactivate C
+P --> Main : c
+deactivate P
+
+Main -> C : execute()
+activate C
+C -> E : deleteExpense(1)
+activate E
+E --> C : deleted expense
+deactivate E
+C --> Main : "Deleted: ..."
+deactivate C
+
+Main -> Main : saveData(response)
+activate Main
+Main -> S : save(ratings, expenses, budget)
+activate S
+S --> Main
+deactivate S
+Main --> Main : response
+deactivate Main
+
+Main -> Ui : showResponseToUser(response)
+activate Ui
+Ui --> User : "Deleted: ..."
+Ui --> Main
+deactivate Ui
+deactivate Main
+@enduml

@@ -1,0 +1,43 @@
+@startuml
+' Parser creates one Command subclass per command word; BudgetBite then executes it.
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam defaultFontSize 14
+skinparam groupInheritance 2
+skinparam nodesep 12
+skinparam ranksep 60
+hide circle
+hide empty members
+left to right direction
+
+class BudgetBite
+class Parser {
+    +parseCommand(input: String): Command
+}
+class Command {
+    +execute(): String
+}
+
+BudgetBite ..> Parser : asks to\nparse input
+Parser ..> Command : creates
+BudgetBite ..> Command : executes
+
+Command <|-- RateCommand
+Command <|-- ListRatingsCommand
+Command <|-- EditRatingsCommand
+Command <|-- DeleteRatingCommand
+Command <|-- LogExpenseCommand
+Command <|-- ListExpensesCommand
+Command <|-- EditExpenseCommand
+Command <|-- DeleteExpenseCommand
+Command <|-- SetBudgetCommand
+Command <|-- BudgetCommand
+Command <|-- HelpCommand
+Command <|-- ByeCommand
+Command <|-- UnknownCommand
+
+class RateSuggestions <<utility>>
+RateCommand ..> FoodDirectory : checks names in
+RateCommand ..> RateSuggestions : ends with ?
+RateSuggestions ..> MenuNavigator : opens numbered list
+@enduml
