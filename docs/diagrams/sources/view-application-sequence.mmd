@@ -1,0 +1,56 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant parser as :CommandParser
+    participant vcls as <<class>><br/>ViewCommand
+    participant list as :ApplicationList
+    participant app as :Application
+    participant ui as :Ui
+
+    user->>main: view 1
+    main->>parser: parse("view 1", history)
+    activate parser
+    parser->>vcls: parse("1")
+    activate vcls
+    create participant cmd as :ViewCommand
+    vcls->>cmd: new ViewCommand(0)
+    vcls-->>parser: viewCommand
+    deactivate vcls
+    parser-->>main: viewCommand
+    deactivate parser
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+
+    alt targetIndex is within the list
+        cmd->>list: get(0)
+        activate list
+        list-->>cmd: application
+        deactivate list
+        cmd->>app: getCompany()
+        activate app
+        app-->>cmd: "Google"
+        deactivate app
+        cmd->>app: getRole()
+        activate app
+        app-->>cmd: "SWE Intern"
+        deactivate app
+        cmd->>app: getRecruitmentStage()
+        activate app
+        app-->>cmd: ACCEPTED
+        deactivate app
+        cmd->>app: isCompleted()
+        activate app
+        app-->>cmd: false
+        deactivate app
+        Note right of app: getDeadline(), getPortalLink(), getEmail() and getNotes()<br/>are also read, but are shown only when recorded
+        cmd->>ui: showMessage(card)
+        activate ui
+        ui-->>user: Structured card display
+        deactivate ui
+        cmd-->>main:
+    else targetIndex is out of range
+        cmd-->>main: throw JobSeekException
+        main->>ui: showError(message)
+    end
+    deactivate cmd

@@ -1,0 +1,55 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant ui as :Ui
+    participant list as :ApplicationList
+    participant app as :Application
+    participant table as <<class>><br/>ApplicationTable
+
+    user->>main: 7 (search)
+    main->>main: handleMenuSearch()
+    activate main
+    main->>ui: showPrompt("Search company or role:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "engineer"
+    deactivate ui
+    create participant cmd as :SearchCommand
+    main->>cmd: new SearchCommand("engineer")
+    deactivate main
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+
+    loop for each application
+        cmd->>list: get(i)
+        activate list
+        list-->>cmd: application
+        deactivate list
+        cmd->>app: getCompany()
+        activate app
+        app-->>cmd: "Google"
+        deactivate app
+        cmd->>app: getRole()
+        activate app
+        app-->>cmd: "Software Engineer"
+        deactivate app
+    end
+
+    alt some applications match
+        cmd->>table: format(applications, matches, heading)
+        activate table
+        table-->>cmd: formattedTable
+        deactivate table
+        cmd->>ui: showMessage(formattedTable)
+        activate ui
+        ui-->>user: Matching applications table
+        deactivate ui
+    else no application matches
+        cmd->>ui: showMessage("No applications found matching 'engineer'.")
+        activate ui
+        ui-->>user: No matches message
+        deactivate ui
+    end
+    cmd-->>main:
+    deactivate cmd

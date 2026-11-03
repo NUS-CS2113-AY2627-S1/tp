@@ -1,0 +1,49 @@
+package jobseek.command;
+
+import jobseek.TestStorage;
+import jobseek.model.ApplicationList;
+import jobseek.ui.Ui;
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Unit tests for {@link HelpCommand}.
+ */
+public class HelpCommandTest {
+
+    @Test
+    public void execute_displaysHelpMessage() {
+        RecordingUi ui = new RecordingUi();
+        HelpCommand command = new HelpCommand();
+
+        command.execute(new ApplicationList(), ui, TestStorage.create());
+
+        assertFalse(command.isExit());
+        assertTrue(ui.lastMessage.contains("Available menu options:"));
+        assertTrue(ui.lastMessage.contains("list [completed|all]"));
+        assertTrue(ui.lastMessage.contains("view INDEX"));
+        assertTrue(ui.lastMessage.contains("today"));
+        assertTrue(ui.lastMessage.contains("[1] Add application"));
+        assertTrue(ui.lastMessage.contains("[2] List all applications"));
+        assertTrue(ui.lastMessage.contains("[3] List uncompleted applications"));
+        assertTrue(ui.lastMessage.contains("[4] Delete application"));
+        assertTrue(ui.lastMessage.contains("[5] Mark application as completed"));
+        assertTrue(ui.lastMessage.contains("[6] Unmark application"));
+        assertTrue(ui.lastMessage.contains("[7] Search applications"));
+        assertTrue(ui.lastMessage.contains("[8] Sort applications alphabetically"));
+        assertTrue(ui.lastMessage.contains("[9] Edit application"));
+        assertTrue(ui.lastMessage.contains("[10] Help"));
+        assertTrue(ui.lastMessage.contains("[0] Exit"));
+    }
+
+    private static class RecordingUi extends Ui {
+        private String lastMessage;
+
+        @Override
+        public void showMessage(String message) {
+            lastMessage = message;
+        }
+    }
+}

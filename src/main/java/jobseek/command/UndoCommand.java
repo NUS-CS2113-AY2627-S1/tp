@@ -1,0 +1,52 @@
+package jobseek.command;
+
+import java.io.IOException;
+
+import jobseek.model.ApplicationList;
+import jobseek.storage.Storage;
+import jobseek.ui.Ui;
+
+/**
+ * Reverses the most recent change made by an add, delete, edit, recruitment-stage or mark/unmark command.
+ * The command itself is not undoable, so repeating {@code undo} walks further back in history.
+ */
+public class UndoCommand extends Command {
+    private final CommandHistory history;
+
+    /**
+     * Constructs an UndoCommand that draws from the given history.
+     *
+     * @param history History shared with the main loop, which records each executed command.
+     */
+    public UndoCommand(CommandHistory history) {
+        assert history != null : "History should not be null";
+        this.history = history;
+    }
+
+    /**
+     * Undoes the latest recorded change and saves the restored list.
+     *
+     * @param applications In-memory list of applications.
+     * @param ui User interface for user feedback.
+     * @param storage Storage instance to persist the restored list.
+     * @throws IOException If the updated list could not be saved.
+     */
+    @Override
+    public void execute(ApplicationList applications, Ui ui, Storage storage) throws IOException {
+        UndoableCommand last = history.peek();
+        if (last == null) {
+            ui.showError("Nothing to undo.");
+            return;
+        }
+        ApplicationListSnapshot snapshot = new ApplicationListSnapshot(applications);
+        String description = last.undo(applications);
+        try {
+            storage.save(applications);
+        } catch (IOException e) {
+            snapshot.restore(applications);
+            throw e;
+        }
+        history.pop();
+        ui.showMessage("Undone: " + description);
+    }
+}

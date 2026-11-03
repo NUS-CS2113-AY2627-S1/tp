@@ -1,66 +1,103 @@
-# Duke project template
+# JobSeek
 
-This is a project template for a greenfield Java project. It's named after the Java mascot _Duke_. Given below are instructions on how to use it.
+[![CI Status](https://github.com/AY2627S1-CS2113-T10-2/tp/workflows/Java%20CI/badge.svg)](https://github.com/AY2627S1-CS2113-T10-2/tp/actions)
 
-## Setting up in Intellij
+**JobSeek** is a command-line desktop application (CLI) built for undergraduate students and job seekers to efficiently track, manage, and monitor their internship and job applications. 
 
-Prerequisites: JDK 25 (use the exact version), update Intellij to the most recent version.
+Designed for keyboard-driven efficiency, JobSeek helps students keep all application opportunities organized in one central place, monitor recruitment stages, and evaluate application outcomes without the overhead of heavy GUI applications.
 
-1. **Ensure Intellij JDK 25 is defined as an SDK**, as described [here](https://www.jetbrains.com/help/idea/sdk.html#set-up-jdk) -- this step is not needed if you have used JDK 25 in a previous Intellij project.
-1. **Import the project _as a Gradle project_**, as described [here](https://se-education.org/guides/tutorials/intellijImportGradleProject.html).
-1. **Verify the setup**: After the importing is complete, locate the `src/main/java/seedu/duke/Duke.java` file, right-click it, and choose `Run Duke.main()`. If the setup is correct, you should see something like the below:
+---
+## Key Features
+
+- **Application Tracking (`Add`)**: Record opportunities by company and role with mandatory input validation, plus optional deadlines, portal links, contact emails, and notes. New entries start incomplete (`[ ]`) at the `Applied` recruitment stage.
+- **List & Card Views (`List`, `View`)**: Display active, completed, or all applications in clean numbered tables, or inspect comprehensive detail cards for any application using `view INDEX`.
+- **In-Place Field Updates (`Edit`)**: Correct typos or update details (Company, Role, recruitment stage, or all fields) directly in place without deleting and recreating records.
+- **Recruitment Stage Tracking**: Track application progress across standard recruitment stages (`Applied`, `Online Assessment`, `Interview`, `Offer`, `Accepted`, `Rejected`, `Withdrawn`).
+- **Search, Filters & Sort**: Find applications by company or role, combine filters for company, role, stage, deadline, and completion status, or display entries alphabetically without changing their saved order.
+- **Completion Tracking (`Mark`, `Unmark`)**: Toggle whether an application is complete, independently of its recruitment stage.
+- **Deadline Overview (`Today`)**: Review overdue, due today, and upcoming application deadlines. JobSeek also displays deadline warnings when it starts.
+- **Undo (`undo`)**: Reverse recent add, delete, edit, stage, and completion changes.
+- **Numbers-Only Menu Interface**: An intuitive, structured CLI menu where options are executed with single numbers (`[0]` to `[10]`) with reprompt loops for invalid inputs.
+
+---
+
+## Quick Start
+
+### Prerequisites
+- **JDK 25**. Confirm the active Java version with `java -version`. On macOS with SDKMAN, select Java 25 with `sdk use java 25.0.3.fx-zulu`.
+- A terminal to run the application. IntelliJ IDEA or another Java IDE is optional.
+
+### Building & Running
+
+1. **Clone the repository**:
+   ```bash
+   git clone https://github.com/AY2627S1-CS2113-T10-2/tp.git
+   cd tp
    ```
-   > Task :compileJava
-   > Task :processResources NO-SOURCE
-   > Task :classes
-   
-   > Task :Duke.main()
-   Hello from
-    ____        _
-   |  _ \ _   _| | _____ 
-   | | | | | | | |/ / _ \
-   | |_| | |_| |   <  __/
-   |____/ \__,_|_|\_\___|
-   
-   What is your name?
+
+2. **Build the executable JAR using Gradle**:
+   ```bash
+   ./gradlew shadowJar
    ```
-   Type some word and press enter to let the execution proceed to the end.
+   On Windows PowerShell, use `.\gradlew.bat shadowJar`.
+   The fat JAR will be generated at `build/libs/jobseek.jar`.
 
-**Warning:** Keep the `src\main\java` folder as the root folder for Java files (i.e., don't rename those folders or move Java files to another folder outside of this folder path), as this is the default location some tools (e.g., Gradle) expect to find Java files.
+3. **Run the application**:
+   ```bash
+   java -jar build/libs/jobseek.jar
+   ```
+   *(To run with assertion checking enabled, use `java -ea -jar build/libs/jobseek.jar`)*.
 
-## Build automation using Gradle
+4. **Running directly via Gradle**:
+   ```bash
+   ./gradlew run --console=plain
+   ```
 
-* This project uses Gradle for build automation and dependency management. It includes a basic build script as well (i.e. the `build.gradle` file).
-* If you are new to Gradle, refer to the [Gradle Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/gradle.html).
+### Using JobSeek
 
-## Testing
+JobSeek opens a numbered menu in the terminal. Enter a menu number and follow the prompts, or enter a one-line command at the prompt. For example:
 
-### I/O redirection tests
+```text
+add c/Google r/SWE Intern d/2026-11-30
+list
+edit 1 s/Interview
+view 1
+```
 
-* To run _I/O redirection_ tests (aka _Text UI tests_), navigate to the `text-ui-test` and run the `runtest(.bat/.sh)` script.
+The `add` command requires a company (`c/`) and role (`r/`). Deadline (`d/`), portal link (`p/`), contact email (`e/`), and notes (`n/`) are optional. New applications begin at the `Applied` stage and are marked incomplete. Use `help` to see command shortcuts, `undo` to reverse the latest change, and `exit` or menu option `0` to quit.
 
-### JUnit tests
+JobSeek creates and updates its data file in the folder from which it is launched. Run it from a folder where you have write permission, and use a terminal so you can interact with the menu and prompts. See the [User Guide](docs/UserGuide.md) for all commands, filtering options, and examples.
 
-* A skeleton JUnit test (`src/test/java/seedu/duke/DukeTest.java`) is provided with this project template. 
-* If you are new to JUnit, refer to the [JUnit Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/junit.html).
-
-## Checkstyle
-
-* A sample CheckStyle rule configuration is provided in this project.
-* If you are new to Checkstyle, refer to the [Checkstyle Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/checkstyle.html).
-
-## CI using GitHub Actions
-
-The project uses [GitHub actions](https://github.com/features/actions) for CI. When you push a commit to this repo or PR against it, GitHub actions will run automatically to build and verify the code as updated by the commit/PR.
+---
 
 ## Documentation
 
-`/docs` folder contains a skeleton version of the project documentation.
+- **[User Guide (UG)](docs/UserGuide.md)**: Detailed feature walkthroughs, menu options cheat sheet, input sequences, and edge-case handling.
+- **[Developer Guide (DG)](docs/DeveloperGuide.md)**: Architecture documentation, Command pattern design, Mermaid UML class and sequence diagrams, user stories, and manual testing guides.
+- **[About Us](docs/AboutUs.md)**: Meet the development team behind JobSeek.
 
-Steps for publishing documentation to the public: 
-1. If you are using this project template for an individual project, go your fork on GitHub.<br>
-   If you are using this project template for a team project, go to the team fork on GitHub.
-1. Click on the `settings` tab.
-1. Scroll down to the `GitHub Pages` section.
-1. Set the `source` as `master branch /docs folder`.
-1. Optionally, use the `choose a theme` button to choose a theme for your documentation.
+---
+
+## Development & Testing
+
+Run these commands from the repository root. On Windows PowerShell, replace `./gradlew` with `.\gradlew.bat`.
+
+- **Run all automated tests**:
+  ```bash
+  ./gradlew test
+  ```
+- **Run Checkstyle quality analysis**:
+  ```bash
+  ./gradlew checkstyleMain checkstyleTest
+  ```
+- **Execute complete build and verification**:
+  ```bash
+  ./gradlew check
+  ```
+
+- **Build the runnable JAR**:
+  ```bash
+  ./gradlew shadowJar
+  ```
+
+---

@@ -1,0 +1,43 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant ui as :Ui
+    participant list as :ApplicationList
+    participant app as :Application
+    participant table as <<class>><br/>ApplicationTable
+
+    user->>main: 8 (sort)
+    create participant cmd as :SortCommand
+    main->>cmd: new SortCommand()
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+    cmd->>cmd: copy the indices 0 .. size-1
+    activate cmd
+    deactivate cmd
+
+    loop while comparing two indices
+        cmd->>list: get(index)
+        activate list
+        list-->>cmd: application
+        deactivate list
+        cmd->>app: getCompany()
+        activate app
+        app-->>cmd: company
+        deactivate app
+        cmd->>app: getRole()
+        activate app
+        app-->>cmd: role
+        deactivate app
+    end
+
+    cmd->>table: format(applications, sortedIndices, heading)
+    activate table
+    table-->>cmd: formattedTable
+    deactivate table
+    cmd->>ui: showMessage(formattedTable)
+    activate ui
+    ui-->>user: Sorted applications table
+    deactivate ui
+    cmd-->>main:
+    deactivate cmd

@@ -1,0 +1,24 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant parser as :CommandParser
+    participant history as :CommandHistory
+
+    user->>main: add c/Google r/SWE Intern d/2026-11-30
+    main->>parser: parse(input, history)
+    activate parser
+    parser->>parser: parseAdd(arguments)
+    activate parser
+    parser->>parser: parseFields(arguments, "crdpen", usage, false, "")
+    parser->>parser: parseDeadline("2026-11-30")
+    create participant cmd as :AddCommand
+    parser->>cmd: new AddCommand(company, role, deadline, portalLink, email, notes)
+    deactivate parser
+    parser-->>main: addCommand
+    deactivate parser
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+    cmd-->>main:
+    deactivate cmd
+    main->>history: record(addCommand)

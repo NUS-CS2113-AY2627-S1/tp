@@ -1,0 +1,164 @@
+package jobseek.model;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * Manages an in-memory list of job applications.
+ * Provides safe collection operations and index boundary validations.
+ */
+public class ApplicationList {
+    private final ArrayList<Application> applications;
+
+    /**
+     * Constructs an empty ApplicationList.
+     */
+    public ApplicationList() {
+        this.applications = new ArrayList<>();
+    }
+
+    /**
+     * Constructs an ApplicationList pre-populated with existing applications.
+     *
+     * @param applications Initial applications. They are copied, so later changes to the given
+     *                     collection do not affect this list. A null collection creates an empty list.
+     * @throws NullPointerException If the collection contains a null application.
+     */
+    public ApplicationList(Collection<Application> applications) {
+        this.applications = applications != null ? copyApplications(applications) : new ArrayList<>();
+    }
+
+    /**
+     * Adds an application to the list.
+     *
+     * @param app Application to be added.
+     * @throws NullPointerException If the application is null.
+     */
+    public void add(Application app) {
+        Objects.requireNonNull(app, "Application cannot be null");
+        int sizeBefore = applications.size();
+        applications.add(app);
+        assert applications.size() == sizeBefore + 1 : "List size should increase by 1 after adding";
+        assert applications.contains(app) : "List should contain the newly added application";
+    }
+
+    /**
+     * Inserts an application at the specified 0-based index, shifting later applications down.
+     * Used to restore a deleted application to its original position.
+     *
+     * @param index 0-based position to insert at; must be between 0 and size (inclusive).
+     * @param app Application to insert.
+     * @throws NullPointerException If the application is null.
+     */
+    public void insert(int index, Application app) {
+        Objects.requireNonNull(app, "Application cannot be null");
+        if (index < 0 || index > applications.size()) {
+            throw new IndexOutOfBoundsException("Invalid insert index: " + index + ".");
+        }
+        applications.add(index, app);
+    }
+
+    /**
+     * Removes and returns the application at the specified 0-based index.
+     *
+     * @param index 0-based index of the application to delete.
+     * @return The removed Application.
+     * @throws IndexOutOfBoundsException If index is out of bounds (< 0 or >= size).
+     */
+    public Application delete(int index) {
+        if (!isValidIndex(index)) {
+            throw new IndexOutOfBoundsException("Invalid index: " + index + ". Must be between 0 and "
+                    + (applications.size() - 1) + ".");
+        }
+        return applications.remove(index);
+    }
+
+    /**
+     * Retrieves the application at the specified 0-based index.
+     *
+     * @param index 0-based index of the application to retrieve.
+     * @return The Application at the given index.
+     * @throws IndexOutOfBoundsException If index is out of bounds (< 0 or >= size).
+     */
+    public Application get(int index) {
+        if (!isValidIndex(index)) {
+            throw new IndexOutOfBoundsException("Invalid index: " + index + ". Must be between 0 and "
+                    + (applications.size() - 1) + ".");
+        }
+        Application app = applications.get(index);
+        assert app != null : "Application at valid index should not be null";
+        return app;
+    }
+
+    /**
+     * Returns the total number of applications currently stored.
+     *
+     * @return Total count of applications.
+     */
+    public int size() {
+        return applications.size();
+    }
+
+    /**
+     * Returns a read-only view of the applications. Callers can look at the list but cannot add, remove or
+     * reorder entries through it; use {@link #add}, {@link #delete}, {@link #insert} or {@link #replaceAll}.
+     * (The Application objects themselves are still mutable, which is how edits work.)
+     *
+     * @return Unmodifiable view of all applications, in list order.
+     */
+    public List<Application> getAll() {
+        return Collections.unmodifiableList(applications);
+    }
+
+    /**
+     * Replaces the whole content of the list. Used to restore an earlier state, for example when a
+     * failed save has to be rolled back.
+     *
+     * @param newContents Applications the list should hold afterwards, in order. Copied before use.
+     * @throws NullPointerException If the collection or any application in it is null.
+     */
+    public void replaceAll(Collection<Application> newContents) {
+        List<Application> copy = copyApplications(newContents);
+        applications.clear();
+        applications.addAll(copy);
+    }
+
+    /**
+     * Copies and validates a collection before it can change this list. Validation happens before
+     * replacement so a rejected collection cannot erase the existing applications.
+     *
+     * @param source Collection to copy.
+     * @return An independent list containing only non-null applications.
+     * @throws NullPointerException If the collection or any application in it is null.
+     */
+    private static ArrayList<Application> copyApplications(Collection<Application> source) {
+        Objects.requireNonNull(source, "Application collection cannot be null");
+        ArrayList<Application> copy = new ArrayList<>(source);
+        for (Application application : copy) {
+            Objects.requireNonNull(application, "Application cannot be null");
+        }
+        return copy;
+    }
+
+    /**
+     * Checks if the specified 0-based index is valid within the list.
+     *
+     * @param index The 0-based index to check.
+     * @return True if the index is non-negative and less than list size, false otherwise.
+     */
+    public boolean isValidIndex(int index) {
+        return index >= 0 && index < applications.size();
+    }
+
+    /**
+     * Checks whether the list contains zero applications.
+     *
+     * @return True if the list is empty, false otherwise.
+     */
+    public boolean isEmpty() {
+        return applications.isEmpty();
+    }
+}

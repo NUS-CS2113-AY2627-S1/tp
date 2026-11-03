@@ -1,0 +1,86 @@
+package jobseek.command;
+
+import java.io.IOException;
+
+import jobseek.model.Application;
+import jobseek.model.ApplicationList;
+import jobseek.storage.Storage;
+import jobseek.ui.Ui;
+
+/**
+ * Handles marking an application as completed or uncompleted.
+ */
+public class MarkCommand extends UndoableCommand {
+    private final int targetIndex;
+    private final boolean isCompleted;
+    private Application markedApplication;
+    private boolean previousCompleted;
+
+    /**
+     * Constructs a MarkCommand with the target 0-based index and desired completion status.
+     *
+     * @param targetIndex 0-based index of the application in the application list.
+     * @param isCompleted True to mark as completed, false to unmark.
+     */
+    public MarkCommand(int targetIndex, boolean isCompleted) {
+        this.targetIndex = targetIndex;
+        this.isCompleted = isCompleted;
+    }
+
+    public int getTargetIndex() {
+        return targetIndex;
+    }
+
+    public boolean isCompleted() {
+        return isCompleted;
+    }
+
+    /**
+     * Executes the mark or unmark operation on the target application.
+     *
+     * @param applications In-memory list of applications.
+     * @param ui User interface for printing user feedback.
+     * @param storage Storage instance to persist the updated status.
+     * @throws IOException If the updated list could not be saved.
+     */
+    @Override
+    public void execute(ApplicationList applications, Ui ui, Storage storage) throws IOException {
+        if (applications.isEmpty()) {
+            ui.showError("Your application list is currently empty.");
+            return;
+        }
+
+        if (!applications.isValidIndex(targetIndex)) {
+            ui.showError("Invalid application index: " + (targetIndex + 1)
+                    + ". Please enter a number between 1 and " + applications.size() + ".");
+            return;
+        }
+
+        Application application = applications.get(targetIndex);
+        if (application.isCompleted() == isCompleted) {
+            // Nothing would change, so do not save or record it: otherwise undo would appear to do nothing.
+            ui.showMessage(isCompleted
+                    ? "This application is already marked as completed:\n  " + application
+                    : "This application is already not completed:\n  " + application);
+            return;
+        }
+        markedApplication = application;
+        previousCompleted = application.isCompleted();
+        application.setCompleted(isCompleted);
+        markChanged();
+
+        String message = isCompleted
+                ? "Nice! I've marked this application as completed:\n  " + application
+                : "OK, I've marked this application as not completed yet:\n  " + application;
+
+        saveOrRollback(applications, storage);
+        ui.showMessage(message);
+    }
+
+    /** Restores the completion flag the application had before this command ran. */
+    @Override
+    public String undo(ApplicationList applications) {
+        markedApplication.setCompleted(previousCompleted);
+        return (isCompleted ? "marked " : "unmarked ") + markedApplication;
+    }
+}

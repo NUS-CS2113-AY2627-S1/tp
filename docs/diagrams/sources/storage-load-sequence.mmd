@@ -1,0 +1,41 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    participant main as :Main
+    participant storage as :Storage
+    participant files as <<class>><br/>Files
+    participant ui as :Ui
+
+    main->>storage: load()
+    activate storage
+    storage->>files: readAllLines(path, UTF_8)
+    files-->>storage: lines
+    create participant list as :ApplicationList
+    storage->>list: new ApplicationList()
+
+    loop for each line of the file
+        storage->>storage: parseRecord(lineIndex, line)
+        activate storage
+        alt record is valid
+            create participant app as :Application
+            storage->>app: new Application(company, role, completed, stage, deadline, portalLink, email, notes)
+            storage->>list: add(application)
+        else record is corrupted
+            storage->>storage: add warning to loadWarnings
+        end
+        deactivate storage
+    end
+
+    opt any line was skipped
+        storage->>storage: backupPending = true
+    end
+    storage-->>main: applications
+    deactivate storage
+
+    main->>storage: getLoadWarnings()
+    storage-->>main: warnings
+    loop for each warning
+        main->>ui: showError(warning)
+    end
+    opt backup is pending
+        main->>ui: showMessage("Your original file will be copied to ... .bak")
+    end

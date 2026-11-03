@@ -1,0 +1,60 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant parser as :CommandParser
+    participant ui as :Ui
+    participant history as :CommandHistory
+    participant list as :ApplicationList
+    participant storage as :Storage
+
+    user->>main: delete 2
+    main->>parser: parse("delete 2", history)
+    create participant del as :DeleteCommand
+    parser->>del: new DeleteCommand(1)
+    parser-->>main: deleteCommand
+    main->>del: execute(applications, ui, storage)
+    activate del
+    del->>ui: showPrompt("Delete [ ] Google | SWE Intern? (y/n)")
+    del->>ui: readCommand()
+    activate ui
+    ui-->>del: "y"
+    deactivate ui
+    del->>list: delete(1)
+    activate list
+    list-->>del: deletedApplication
+    deactivate list
+    del->>storage: save(applications)
+    del-->>main:
+    deactivate del
+    main->>history: record(deleteCommand)
+
+    user->>main: undo
+    main->>parser: parse("undo", history)
+    create participant undo as :UndoCommand
+    parser->>undo: new UndoCommand(history)
+    parser-->>main: undoCommand
+    main->>undo: execute(applications, ui, storage)
+    activate undo
+    undo->>history: peek()
+    history-->>undo: deleteCommand
+    create participant snap as :ApplicationListSnapshot
+    undo->>snap: new ApplicationListSnapshot(applications)
+    undo->>del: undo(applications)
+    activate del
+    del->>list: insert(1, deletedApplication)
+    del-->>undo: "deleted [ ] Google | SWE Intern"
+    deactivate del
+    undo->>storage: save(applications)
+    alt save succeeded
+        undo->>history: pop()
+        undo->>ui: showMessage("Undone: deleted [ ] Google | SWE Intern")
+        activate ui
+        ui-->>user: Confirmation message
+        deactivate ui
+    else IOException
+        undo->>snap: restore(applications)
+        undo-->>main: throw IOException
+        main->>ui: showError(message)
+    end
+    deactivate undo

@@ -1,0 +1,60 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant ui as :Ui
+    participant history as :CommandHistory
+    participant list as :ApplicationList
+    participant storage as :Storage
+
+    user->>main: 4 (delete)
+    main->>main: promptApplicationIndex()
+    activate main
+    main->>ui: showPrompt("Enter application index to delete:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "1"
+    deactivate ui
+    create participant cmd as :DeleteCommand
+    main->>cmd: new DeleteCommand(0)
+    deactivate main
+    main->>storage: ensureWritable()
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+    cmd->>list: isValidIndex(0)
+    activate list
+    list-->>cmd: true
+    deactivate list
+    cmd->>list: get(0)
+    activate list
+    list-->>cmd: application
+    deactivate list
+    cmd->>ui: showPrompt("Delete [ ] Google | SWE Intern? (y/n)")
+    cmd->>ui: readCommand()
+    activate ui
+    ui-->>cmd: "y"
+    deactivate ui
+
+    alt answer is y or yes
+        cmd->>list: delete(0)
+        activate list
+        list-->>cmd: deletedApplication
+        deactivate list
+        cmd->>cmd: markChanged()
+        cmd->>cmd: saveOrRollback(applications, storage)
+        activate cmd
+        cmd->>storage: save(applications)
+        deactivate cmd
+        cmd->>ui: showMessage("OK, I've deleted this application...")
+        activate ui
+        ui-->>user: Confirmation message
+        deactivate ui
+    else any other answer
+        cmd->>ui: showMessage("Deletion cancelled. No application was deleted.")
+        activate ui
+        ui-->>user: Cancellation message
+        deactivate ui
+    end
+    cmd-->>main:
+    deactivate cmd
+    main->>history: record(deleteCommand)

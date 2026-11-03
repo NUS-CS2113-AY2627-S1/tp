@@ -1,0 +1,44 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    participant cmd as :AddCommand
+    participant storage as :Storage
+    participant list as :ApplicationList
+    participant app as :Application
+    participant files as <<class>><br/>Files
+
+    cmd->>cmd: saveOrRollback(applications, storage)
+    activate cmd
+    cmd->>storage: save(applications)
+    activate storage
+    storage->>storage: ensureWritable()
+    storage->>storage: backUpOriginalIfNeeded(path)
+    opt a previous load skipped corrupted lines
+        storage->>files: copy(path, backupPath, REPLACE_EXISTING)
+    end
+    storage->>list: getAll()
+    activate list
+    list-->>storage: read-only list of applications
+    deactivate list
+
+    loop for each application
+        storage->>app: getCompany(), getRole(), isCompleted(), getDeadline(), ...
+        activate app
+        app-->>storage: field values
+        deactivate app
+    end
+
+    storage->>storage: writeAtomically(path, lines)
+    activate storage
+    storage->>files: createTempFile(directory, "applications-", ".tmp")
+    storage->>files: write(temporaryFile, lines)
+    storage->>files: move(temporaryFile, path, ATOMIC_MOVE, REPLACE_EXISTING)
+    deactivate storage
+    alt move succeeded
+        storage-->>cmd:
+    else IOException
+        storage->>files: deleteIfExists(temporaryFile)
+        storage-->>cmd: throw IOException
+        cmd->>cmd: undo(applications)
+    end
+    deactivate storage
+    deactivate cmd

@@ -1,0 +1,49 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant parser as :CommandParser
+    participant lcls as <<class>><br/>ListCommand
+    participant list as :ApplicationList
+    participant app as :Application
+    participant ui as :Ui
+
+    user->>main: list completed
+    main->>parser: parse("list completed", history)
+    activate parser
+    parser->>lcls: parse("completed")
+    activate lcls
+    create participant cmd as :ListCommand
+    lcls->>cmd: new ListCommand(COMPLETED)
+    lcls-->>parser: listCommand
+    deactivate lcls
+    parser-->>main: listCommand
+    deactivate parser
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+
+    loop for each application
+        cmd->>list: get(i)
+        activate list
+        list-->>cmd: application
+        deactivate list
+        cmd->>app: isCompleted()
+        activate app
+        app-->>cmd: isCompleted
+        deactivate app
+    end
+
+    alt some applications match
+        cmd->>cmd: build table with original numbers
+        cmd->>ui: showMessage(table)
+        activate ui
+        ui-->>user: Formatted table output
+        deactivate ui
+    else no application matches
+        cmd->>ui: showMessage("No completed applications found.")
+        activate ui
+        ui-->>user: Status message
+        deactivate ui
+    end
+    cmd-->>main:
+    deactivate cmd

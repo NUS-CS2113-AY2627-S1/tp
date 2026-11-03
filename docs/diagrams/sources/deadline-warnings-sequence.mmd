@@ -1,0 +1,41 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    participant main as :Main
+    participant warnings as :DeadlineWarnings
+    participant date as <<class>><br/>LocalDate
+    participant list as :ApplicationList
+    participant app as :Application
+    participant ui as :Ui
+
+    main->>ui: showWelcome()
+    main->>warnings: show(applications, ui)
+    activate warnings
+    warnings->>date: now()
+    date-->>warnings: today
+
+    loop for each application
+        warnings->>list: get(i)
+        activate list
+        list-->>warnings: application
+        deactivate list
+        warnings->>app: getDeadline()
+        activate app
+        app-->>warnings: deadline
+        deactivate app
+        warnings->>app: isCompleted()
+        activate app
+        app-->>warnings: completed
+        deactivate app
+
+        opt not completed and deadline is within 7 days of today
+            warnings->>warnings: appendWarning(warnings, application, deadline, today)
+            Note right of warnings: classifies as OVERDUE, DUE TODAY or UPCOMING
+        end
+    end
+
+    opt warning summary is not empty
+        warnings->>ui: showMessage(summary)
+    end
+    warnings-->>main:
+    deactivate warnings
+    main->>ui: showMenu(applications)

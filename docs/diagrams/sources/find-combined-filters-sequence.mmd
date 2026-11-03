@@ -1,0 +1,50 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant parser as :CommandParser
+    participant filters as <<class>><br/>ApplicationFilters
+    participant list as :ApplicationList
+    participant table as <<class>><br/>ApplicationTable
+    participant ui as :Ui
+
+    user->>main: find c/google s/interview
+    main->>parser: parse("find c/google s/interview", history)
+    activate parser
+    parser->>filters: companyContains("google")
+    filters-->>parser: companyFilter
+    parser->>filters: inStage(INTERVIEW)
+    filters-->>parser: stageFilter
+    parser->>parser: filter = companyFilter.and(stageFilter)
+    create participant cmd as :FindCommand
+    parser->>cmd: new FindCommand(filter, description)
+    parser-->>main: findCommand
+    deactivate parser
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+
+    loop for each application
+        cmd->>list: get(i)
+        activate list
+        list-->>cmd: application
+        deactivate list
+        cmd->>cmd: filter.test(application)
+    end
+
+    alt some applications match
+        cmd->>table: format(applications, matchIndices, heading)
+        activate table
+        table-->>cmd: table with original numbers
+        deactivate table
+        cmd->>ui: showMessage(table)
+        activate ui
+        ui-->>user: Matching applications
+        deactivate ui
+    else no application matches
+        cmd->>ui: showMessage("No applications found matching ...")
+        activate ui
+        ui-->>user: No matches message
+        deactivate ui
+    end
+    cmd-->>main:
+    deactivate cmd

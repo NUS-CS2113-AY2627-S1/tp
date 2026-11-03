@@ -1,0 +1,191 @@
+package jobseek.command;
+
+import jobseek.TestStorage;
+import jobseek.exception.JobSeekException;
+import jobseek.model.Application;
+import jobseek.model.ApplicationList;
+import jobseek.ui.Ui;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * Unit tests for {@link ViewCommand}.
+ */
+public class ViewCommandTest {
+    private final PrintStream standardOut = System.out;
+    private ByteArrayOutputStream outputStream;
+
+    @BeforeEach
+    public void setUp() {
+        outputStream = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outputStream));
+    }
+
+    @AfterEach
+    public void tearDown() {
+        System.setOut(standardOut);
+    }
+
+    @Test
+    public void parse_validIndex_returnsViewCommandWithZeroBasedIndex() throws Exception {
+        ViewCommand command = ViewCommand.parse("1");
+        assertEquals(0, command.getTargetIndex());
+
+        ViewCommand commandTwo = ViewCommand.parse(" 42 ");
+        assertEquals(41, commandTwo.getTargetIndex());
+    }
+
+    @Test
+    public void parse_nullOrEmptyArgument_throwsJobSeekException() {
+        JobSeekException nullException = assertThrows(JobSeekException.class, () -> ViewCommand.parse(null));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, nullException.getMessage());
+
+        JobSeekException emptyException = assertThrows(JobSeekException.class, () -> ViewCommand.parse("   "));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, emptyException.getMessage());
+    }
+
+    @Test
+    public void parse_nonNumericArgument_throwsJobSeekException() {
+        JobSeekException exception = assertThrows(JobSeekException.class, () -> ViewCommand.parse("abc"));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, exception.getMessage());
+    }
+
+    @Test
+    public void parse_zeroOrNegativeArgument_throwsJobSeekException() {
+        JobSeekException zeroException = assertThrows(JobSeekException.class, () -> ViewCommand.parse("0"));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, zeroException.getMessage());
+
+        JobSeekException negativeException = assertThrows(JobSeekException.class, () -> ViewCommand.parse("-5"));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, negativeException.getMessage());
+    }
+
+    @Test
+    public void parse_integerOverflow_throwsJobSeekException() {
+        JobSeekException exception = assertThrows(JobSeekException.class, () -> ViewCommand.parse("2147483648"));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, exception.getMessage());
+    }
+
+    @Test
+    public void parse_extraTokens_throwsJobSeekException() {
+        JobSeekException exception = assertThrows(JobSeekException.class, () -> ViewCommand.parse("1 2"));
+        assertEquals(ViewCommand.MESSAGE_INVALID_INDEX, exception.getMessage());
+    }
+
+    @Test
+    public void parse_zeroPaddedIndex_parsesCorrectly() throws Exception {
+        ViewCommand command = ViewCommand.parse("007");
+        assertEquals(6, command.getTargetIndex());
+    }
+
+    @Test
+    public void execute_validIndexDefaultStage_displaysCardCorrectly() throws Exception {
+        ApplicationList list = new ApplicationList();
+        list.add(new Application("Google", "SWE Intern", false));
+
+        ViewCommand command = new ViewCommand(0);
+        command.execute(list, new Ui(), TestStorage.create());
+
+        String output = outputStream.toString();
+        assertTrue(output.contains("=================================================="));
+        assertTrue(output.contains("Application Details [Index: 1]"));
+        assertTrue(output.contains("--------------------------------------------------"));
+        assertTrue(output.contains("Company:   Google"));
+        assertTrue(output.contains("Role:      SWE Intern"));
+        assertTrue(output.contains("Recruitment stage: Applied"));
+        assertTrue(output.contains("Completed: No"));
+        assertFalse(output.contains("Deadline:"));
+        assertFalse(output.contains("Portal:"));
+        assertFalse(output.contains("Email:"));
+        assertFalse(output.contains("Notes:"));
+    }
+
+    @Test
+    public void execute_validIndexCustomStageAndCompleted_displaysCardCorrectly() throws Exception {
+        ApplicationList list = new ApplicationList();
+        Application app = new Application("Shopee", "Backend Intern", true, "Accepted");
+        list.add(app);
+
+        ViewCommand command = new ViewCommand(0);
+        command.execute(list, new Ui(), TestStorage.create());
+
+        String output = outputStream.toString();
+        assertTrue(output.contains("Application Details [Index: 1]"));
+        assertTrue(output.contains("--------------------------------------------------"));
+        assertTrue(output.contains("Company:   Shopee"));
+        assertTrue(output.contains("Role:      Backend Intern"));
+        assertTrue(output.contains("Recruitment stage: Accepted"));
+        assertTrue(output.contains("Completed: Yes"));
+    }
+
+    @Test
+    public void execute_withAllOptionalFields_displaysCardWithAllDetails() throws Exception {
+        ApplicationList list = new ApplicationList();
+        java.time.LocalDate deadline = java.time.LocalDate.of(2026, 12, 1);
+        Application app = new Application("Google", "SWE Intern", false, "Accepted",
+                deadline, "https://google.com/jobs", "recruiter@google.com", "First interview done");
+        list.add(app);
+
+        ViewCommand command = new ViewCommand(0);
+        command.execute(list, new Ui(), TestStorage.create());
+
+        String output = outputStream.toString();
+        assertTrue(output.contains("Deadline:  2026-12-01"));
+        assertTrue(output.contains("Portal:    https://google.com/jobs"));
+        assertTrue(output.contains("Email:     recruiter@google.com"));
+        assertTrue(output.contains("Notes:     First interview done"));
+    }
+
+    @Test
+    public void execute_onlineAssessmentStage_displaysStageLabel() throws Exception {
+        ApplicationList list = new ApplicationList();
+        list.add(new Application("Google", "SWE Intern", false, "Online Assessment"));
+
+        new ViewCommand(0).execute(list, new Ui(), TestStorage.create());
+
+        assertTrue(outputStream.toString().contains("Recruitment stage: Online Assessment"));
+    }
+
+    @Test
+    public void execute_indexGreaterThanListSize_throwsJobSeekException() {
+        ApplicationList list = new ApplicationList();
+        list.add(new Application("Meta", "Data Scientist"));
+
+        ViewCommand command = new ViewCommand(3); // target index 3 for list size 1
+        JobSeekException exception = assertThrows(JobSeekException.class, () ->
+                command.execute(list, new Ui(), TestStorage.create()));
+
+        assertTrue(exception.getMessage().contains("Application index 4 does not exist"));
+    }
+
+    @Test
+    public void execute_emptyList_throwsJobSeekException() {
+        ApplicationList list = new ApplicationList();
+        ViewCommand command = new ViewCommand(0);
+
+        JobSeekException exception = assertThrows(JobSeekException.class, () ->
+                command.execute(list, new Ui(), TestStorage.create()));
+
+        assertTrue(exception.getMessage().contains("Application index 1 does not exist"));
+    }
+
+    @Test
+    public void execute_negativeIndex_throwsJobSeekException() {
+        ApplicationList list = new ApplicationList();
+        list.add(new Application("Google", "SWE Intern"));
+
+        ViewCommand command = new ViewCommand(-1);
+        JobSeekException exception = assertThrows(JobSeekException.class, () ->
+                command.execute(list, new Ui(), TestStorage.create()));
+
+        assertTrue(exception.getMessage().contains("Application index 0 does not exist"));
+    }
+}

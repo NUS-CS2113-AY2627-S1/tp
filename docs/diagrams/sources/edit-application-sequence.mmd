@@ -1,0 +1,67 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant ui as :Ui
+    participant ecls as <<class>><br/>EditCommand
+    participant list as :ApplicationList
+    participant app as :Application
+    participant storage as :Storage
+
+    user->>main: 9 (edit)
+    main->>main: promptApplicationIndex()
+    activate main
+    main->>ui: showPrompt("Enter application index to edit:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "1"
+    deactivate ui
+    main->>ui: showEditMenu()
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "5" (Portal Link)
+    deactivate ui
+    main->>main: promptOptional("Enter new company portal link:")
+    activate main
+    main->>ui: showPrompt(...)
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "https://careers.google.com"
+    deactivate ui
+    deactivate main
+    main->>ecls: editPortalLink(0, link)
+    activate ecls
+    create participant cmd as :EditCommand
+    ecls->>cmd: new EditCommand(0, null, null, null, null, link, null, null)
+    ecls-->>main: editCommand
+    deactivate ecls
+    deactivate main
+    main->>storage: ensureWritable()
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+    cmd->>list: get(0)
+    activate list
+    list-->>cmd: application
+    deactivate list
+    cmd->>cmd: changesAnything(application)
+
+    alt every new value equals the current one
+        cmd->>ui: showMessage("No changes made: the application already has these values.")
+        activate ui
+        ui-->>user: Status message
+        deactivate ui
+    else at least one value differs
+        cmd->>app: setPortalLink(link)
+        Note right of app: Other choices call setCompany(), setRole(), setDeadline(),<br/>setEmail() or setNotes() instead. Choice 3 uses<br/>RecruitmentStageCommand and choice 8 sets every field
+        cmd->>cmd: markChanged()
+        cmd->>cmd: saveOrRollback(applications, storage)
+        activate cmd
+        cmd->>storage: save(applications)
+        deactivate cmd
+        cmd->>ui: showMessage("Application updated successfully...")
+        activate ui
+        ui-->>user: Confirmation message
+        deactivate ui
+    end
+    cmd-->>main:
+    deactivate cmd

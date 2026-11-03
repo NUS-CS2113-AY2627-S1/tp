@@ -1,0 +1,49 @@
+%%{init: {'theme': 'default', 'themeCSS': '.actor-line{stroke-dasharray:6 5;} .loopLine{stroke-dasharray:none;}', 'sequence': {'mirrorActors': false, 'actorMargin': 60, 'messageMargin': 28}}}%%
+sequenceDiagram
+    actor user as User
+    participant main as :Main
+    participant ui as :Ui
+    participant history as :CommandHistory
+    participant list as :ApplicationList
+    participant storage as :Storage
+
+    user->>main: 1
+    main->>main: handleMenuAdd()
+    activate main
+    main->>ui: showPrompt("Company:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "Google"
+    deactivate ui
+    main->>ui: showPrompt("Role:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "SWE Intern"
+    deactivate ui
+    main->>ui: showPrompt("Deadline:")
+    main->>ui: readCommand()
+    activate ui
+    ui-->>main: "2026-11-15"
+    deactivate ui
+    Note right of ui: Portal link, contact email and notes<br/>are prompted in the same way
+    create participant cmd as :AddCommand
+    main->>cmd: new AddCommand(company, role, deadline, portalLink, email, notes)
+    deactivate main
+    main->>storage: ensureWritable()
+    main->>cmd: execute(applications, ui, storage)
+    activate cmd
+    create participant app as :Application
+    cmd->>app: new Application(company, role, false, APPLIED, deadline, portalLink, email, notes)
+    cmd->>list: add(application)
+    cmd->>cmd: markChanged()
+    cmd->>cmd: saveOrRollback(applications, storage)
+    activate cmd
+    cmd->>storage: save(applications)
+    deactivate cmd
+    cmd->>ui: showMessage("Application added successfully...")
+    activate ui
+    ui-->>user: Confirmation message
+    deactivate ui
+    cmd-->>main:
+    deactivate cmd
+    main->>history: record(addCommand)
