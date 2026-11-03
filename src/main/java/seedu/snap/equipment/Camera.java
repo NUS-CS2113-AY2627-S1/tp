@@ -1,0 +1,183 @@
+// @@author yarnieee
+package seedu.snap.equipment;
+
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Represents a camera in the equipment inventory. */
+public class Camera extends Equipment {
+    private static final String TYPE = "camera";
+    private static final Logger LOGGER = Logger.getLogger(Camera.class.getName());
+
+    // @@author
+    /** Damage states that can be recorded for a camera. */
+    public enum CameraDamage {
+        NONE,
+        SENSOR_DAMAGE,
+        SHUTTER_FAULT,
+
+        // @@author Rohita-29
+
+        WATER_DAMAGE,
+        BODY_CRACK,
+        MISSING_CAP,
+        OTHER
+
+        // @@author
+    }
+
+    private final String sensorFormat;
+    private CameraDamage damage;
+
+    // @@author Rohita-29
+
+    private final String lensMount;
+    private final String tripodThread;
+    private final String batteryType;
+
+    // @@author
+
+    /**
+     * Creates a camera with unspecified sensor format and no recorded damage.
+     *
+     * @param name Name of the camera.
+     * @param id Three-digit equipment ID.
+     * @param condition Condition of the camera from 1 to 10.
+     */
+    // @@author yarnieee
+    public Camera(String name, String id, int condition) {
+        // @@author
+        this(name, id, condition, "unspecified", CameraDamage.NONE);
+    }
+
+    /**
+     * Creates a camera with its type-specific details.
+     * Callers must validate user input before construction.
+     *
+     * @param name Name of the camera.
+     * @param id Three-digit equipment ID.
+     * @param condition Condition of the camera from 1 to 10.
+     * @param sensorFormat Sensor format description, from 1 to 100 characters without line breaks.
+     * @param damage Damage recorded for the camera.
+     */
+    public Camera(String name, String id, int condition, String sensorFormat, CameraDamage damage) {
+        this(name, id, condition, sensorFormat, damage, "");
+    }
+
+    /** Creates a camera with type-specific details and optional remarks. */
+    public Camera(String name, String id, int condition,
+                  String sensorFormat, CameraDamage damage, String remarks) {
+        this(name, id, condition, sensorFormat, damage, remarks,
+                CompatibilityText.UNSPECIFIED,
+                CompatibilityText.UNSPECIFIED,
+                CompatibilityText.UNSPECIFIED);
+    }
+
+    // @@author Rohita-29
+
+    /**
+     * Creates a camera with its compatibility attributes.
+     *
+     * @param name Name of the camera.
+     * @param id Three-digit equipment ID.
+     * @param condition Condition of the camera from 1 to 10.
+     * @param sensorFormat Sensor format description.
+     * @param damage Damage recorded for the camera.
+     * @param remarks Optional equipment remarks.
+     * @param lensMount Lens mount used by the camera.
+     * @param tripodThread Tripod thread used by the camera.
+     * @param batteryType Battery type required by the camera.
+     */
+    public Camera(String name, String id, int condition,
+                  String sensorFormat, CameraDamage damage, String remarks,
+                  String lensMount, String tripodThread, String batteryType) {
+        super(name, id, condition, remarks);
+        assert sensorFormat != null
+                && !sensorFormat.isBlank()
+                && sensorFormat.length() <= 100
+                && !sensorFormat.matches("(?s).*\\R.*")
+                : "Camera sensor format must contain 1 to 100 characters without line breaks.";
+        assert damage != null : "Camera damage must be specified.";
+
+        this.sensorFormat = sensorFormat;
+        this.damage = damage;
+        this.lensMount = CompatibilityText.normalize(lensMount);
+        this.tripodThread = CompatibilityText.normalize(tripodThread);
+        this.batteryType = CompatibilityText.normalize(batteryType);
+
+        assert TYPE.equals(getType()) : "Camera type must remain camera.";
+        LOGGER.log(Level.INFO, "Created camera with item ID {0}.", id);
+    }
+
+    // @@author
+
+
+    // @@author yarnieee
+    @Override
+    public String getType() {
+        return TYPE;
+    }
+    // @@author
+
+    public String getSensorFormat() {
+        return sensorFormat;
+    }
+
+    public CameraDamage getDamage() {
+        return damage;
+    }
+
+    // @@author Rohita-29
+
+    public String getLensMount() {
+        return lensMount;
+    }
+
+    public String getTripodThread() {
+        return tripodThread;
+    }
+
+    public String getBatteryType() {
+        return batteryType;
+    }
+
+    // @@author
+
+    // @@author Rohita-29
+
+    @Override
+    protected void applyDamageAssessment(Equipment assessed) {
+        Camera camera = (Camera) assessed;
+        if (!sensorFormat.equals(camera.sensorFormat) || camera.damage == null) {
+            throw new IllegalArgumentException("A return assessment cannot change the camera sensor format.");
+        }
+        damage = camera.damage;
+    }
+
+    @Override
+    public String getDetails() {
+        StringBuilder details = new StringBuilder("sensor/")
+                .append(sensorFormat);
+
+        EquipmentDetailFormatter.appendIfSpecified(
+                details,
+                EquipmentDetailField.MOUNT,
+                lensMount);
+        EquipmentDetailFormatter.appendIfSpecified(
+                details,
+                EquipmentDetailField.THREAD,
+                tripodThread);
+        EquipmentDetailFormatter.appendIfSpecified(
+                details,
+                EquipmentDetailField.BATTERY_TYPE,
+                batteryType);
+
+        return details.append(' ')
+                .append(EquipmentDetailField.DAMAGE.getMarker())
+                .append(damage.name())
+                .toString();
+    }
+    // @@author
+    // @@author yarnieee
+}
+// @@author

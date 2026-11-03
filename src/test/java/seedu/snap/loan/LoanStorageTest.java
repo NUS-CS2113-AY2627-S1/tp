@@ -1,0 +1,365 @@
+package seedu.snap.loan;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import seedu.snap.equipment.Camera;
+import seedu.snap.equipment.Equipment;
+import seedu.snap.equipment.EquipmentHandler;
+import seedu.snap.exceptions.EquipmentAdditionUnsuccessful;
+import seedu.snap.exceptions.LoanAdditionUnsuccessful;
+import seedu.snap.exceptions.LoanDeletionUnsuccessful;
+
+/** Tests loan storage validation and failure-safe file replacement. */
+class LoanStorageTest {
+    // @@author yarnieee
+    private static final String LOAN = "loan-add e/E001 u/U002 issued/01-10-26 due/02-10-26";
+    private static final String LEGACY_LOAN = "loan id/E001 b/U002 issued/01-10-26 due/02-10-26";
+    // @@author
+    @TempDir
+    private Path temporaryDirectory;
+
+    // @@author yarnieee
+    @Test
+    void load_invalidSequence_rejectsMalformedAndOutOfRangeValues() throws IOException {
+        Path loans = temporaryDirectory.resolve("missing-loans.txt");
+        Path sequence = temporaryDirectory.resolve("sequence.txt");
+        for (String value : new String[]{"", "wrong/L001", "nextLoanId/L000", "nextLoanId/L1001",
+            "nextLoanId/no", "nextLoanId/L001\nnextLoanId/L002"}) {
+            Files.writeString(sequence, value);
+            assertThrows(IOException.class, () -> LoanStorage.load(loans, sequence), value);
+        }
+    }
+
+    // @@author
+    @Test
+    void load_malformedRecord_reportsTheLineNumber() throws IOException {
+        Path file = temporaryDirectory.resolve("loans.txt");
+        // @@author yarnieee
+        Files.writeString(file, "loan id/E001 b/U002 issued/01-10-26 due/02-10-26\nnot a loan record\n");
+        // @@author
+
+        IOException exception = assertThrows(IOException.class, () -> LoanStorage.load(file));
+
+        assertTrue(exception.getMessage().contains("line 2"));
+    }
+
+    @Test
+    void load_invalidReturnedStatus_rejectsTheSavedFile() throws IOException {
+        Path file = temporaryDirectory.resolve("loans.txt");
+        // @@author yarnieee
+        Files.writeString(file, "loan id/E001 b/U002 issued/01-10-26 due/02-10-26 returned/maybe\n");
+        // @@author
+
+        IOException exception = assertThrows(IOException.class, () -> LoanStorage.load(file));
+
+        assertTrue(exception.getMessage().contains("returned/true or returned/false"));
+    }
+
+    // @@author yarnieee
+    @Test
+    void load_legacyBareIdentifiers_migratesLoanAndSequenceValues() throws Exception {
+        // @@author
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Path file = temporaryDirectory.resolve("loans.txt");
+        // @@author yarnieee
+        Path sequence = temporaryDirectory.resolve("loan-sequence.txt");
+        Files.writeString(file, "loan loanId/001 id/001 b/002 issued/01-10-26 due/02-10-26\n");
+        Files.writeString(sequence, "nextLoanId/002\n");
+
+        LoanHandler handler = new LoanHandler(equipment, file, sequence);
+        // @@author
+        handler.loadFromStorage();
+
+        // @@author yarnieee
+        assertEquals("L001", handler.getLoanList().getFirst().getLoanId());
+        assertEquals("E001", handler.getLoanList().getFirst().getItemId());
+        assertEquals("U002", handler.getLoanList().getFirst().getBorrowerId());
+        assertTrue(Files.readString(file).contains("loanId/L001 id/E001 b/U002"));
+        assertEquals("nextLoanId/L002", Files.readString(sequence).trim());
+    }
+
+    @Test
+    void load_lowercaseIdentifiers_migratesAndPersistsUppercaseValues() throws Exception {
+        // @@author
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Path file = temporaryDirectory.resolve("loans.txt");
+        // @@author yarnieee
+        Path sequence = temporaryDirectory.resolve("loan-sequence.txt");
+        Files.writeString(file, "loan loanId/l001 id/e001 b/u002 issued/01-10-26 due/02-10-26\n");
+        Files.writeString(sequence, "nextLoanId/l002\n");
+
+        LoanHandler handler = new LoanHandler(equipment, file, sequence);
+        // @@author
+        handler.loadFromStorage();
+
+        // @@author yarnieee
+        assertEquals("L001", handler.getLoanList().getFirst().getLoanId());
+        assertEquals("E001", handler.getLoanList().getFirst().getItemId());
+        assertEquals("U002", handler.getLoanList().getFirst().getBorrowerId());
+        assertTrue(Files.readString(file).contains("loanId/L001 id/E001 b/U002"));
+        assertEquals("nextLoanId/L002", Files.readString(sequence).trim());
+    }
+
+    @Test
+    void load_collidingLegacyAndCanonicalLoanIds_rejectsFile() throws Exception {
+        // @@author
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Path file = temporaryDirectory.resolve("loans.txt");
+        // @@author yarnieee
+        Files.writeString(file, "loan loanId/001 id/001 b/002 issued/01-10-26 due/02-10-26\n"
+                + "loan loanId/L001 id/E001 b/U003 issued/03-10-26 due/04-10-26\n");
+
+        IOException exception = assertThrows(IOException.class,
+                () -> LoanStorage.load(file));
+
+        assertTrue(exception.getMessage().contains("Duplicate loan ID L001"));
+    }
+
+    // @@author
+    @Test
+    void load_returnedHistoryForDeletedAndReusedIds_attachesOnlyTheActiveLoan() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Equipment replacement = equipment.getEquipmentList().getFirst();
+        Path file = temporaryDirectory.resolve("loans.txt");
+        Files.writeString(file,
+                // @@author yarnieee
+                "loan id/E001 b/U002 issued/01-09-26 due/02-09-26 returned/true\n"
+                + "loan id/E999 b/U003 issued/01-09-26 due/02-09-26 returned/true\n" + LEGACY_LOAN + "\n");
+        // @@author
+        LoanHandler handler = new LoanHandler(equipment, file);
+
+        handler.loadFromStorage();
+
+        assertEquals(3, handler.getLoanCount());
+        assertTrue(replacement.isLoaned());
+        Loan history = handler.getLoanList().getFirst();
+        assertTrue(history.isReturned());
+        history.setReturned(true);
+        assertThrows(IllegalStateException.class, () -> history.setReturned(false));
+        // @@author yarnieee
+        handler.deleteLoan("loan-delete l/L001");
+        // @@author
+        assertTrue(replacement.isLoaned());
+        assertEquals(2, handler.getLoanCount());
+        // @@author yarnieee
+        assertTrue(Files.readString(file).contains("id/E999"));
+        // @@author
+        assertTrue(Files.readString(file).contains(
+                // @@author yarnieee
+                "loan loanId/L003 id/E001 b/U002 issued/01-10-26 due/02-10-26 returned/false"));
+        // @@author
+    }
+
+    @Test
+    void load_invalidActiveRecords_preservesCurrentLoansAndAvailability() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001", "002");
+        Equipment camera = equipment.getEquipmentList().get(0);
+        Equipment spare = equipment.getEquipmentList().get(1);
+        Path file = temporaryDirectory.resolve("loans.txt");
+        LoanHandler handler = new LoanHandler(equipment, file);
+        Loan original = handler.addLoan(LOAN);
+        // @@author yarnieee
+        String other = LEGACY_LOAN.replace("id/E001", "id/E002");
+        // @@author
+        String[] invalidRecords = {
+            // @@author yarnieee
+            other + "\n" + LEGACY_LOAN.replace("id/E001", "id/E999") + "\n",
+            // @@author
+            other + "\n" + other + "\n"
+        };
+
+        for (String records : invalidRecords) {
+            Files.writeString(file, records);
+            assertThrows(IOException.class, handler::loadFromStorage);
+            assertEquals(List.of(original), handler.getLoanList());
+            assertEquals(1, handler.getLoanCount());
+            assertTrue(camera.isLoaned());
+            assertFalse(spare.isLoaned());
+        }
+
+        original.setReturned(true);
+        assertFalse(camera.isLoaned());
+    }
+
+    @Test
+    void load_ambiguousEquipmentId_preservesCurrentLoansAndAvailability() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001", "002");
+        // @@author yarnieee
+        Equipment duplicate = new Camera("Duplicate camera", "E002", 5);
+        // @@author
+        Field inventoryField = EquipmentHandler.class.getDeclaredField("inventory");
+        inventoryField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        ArrayList<Equipment> inventory = (ArrayList<Equipment>) inventoryField.get(equipment);
+        inventory.add(duplicate);
+        Path file = temporaryDirectory.resolve("loans.txt");
+        LoanHandler handler = new LoanHandler(equipment, file);
+        Loan original = handler.addLoan(LOAN);
+        // @@author yarnieee
+        Files.writeString(file, LEGACY_LOAN.replace("id/E001", "id/E002") + "\n");
+        // @@author
+
+        IOException error = assertThrows(IOException.class, handler::loadFromStorage);
+
+        assertTrue(error.getMessage().contains("not unique"));
+        assertEquals(List.of(original), handler.getLoanList());
+        assertTrue(inventory.getFirst().isLoaned());
+        assertFalse(inventory.get(1).isLoaned());
+        assertFalse(duplicate.isLoaned());
+    }
+
+    @Test
+    void load_replacesEquipmentAndLoans_detachesOldReferences() throws Exception {
+        EquipmentHandler equipment = new EquipmentHandler(temporaryDirectory.resolve("equipment.txt"));
+        // @@author yarnieee
+        Equipment previousItem = equipment.addEquipment("eqm-add name/Camera e/E001 type/camera cond/5");
+        // @@author
+        LoanHandler handler = new LoanHandler(equipment, temporaryDirectory.resolve("loans.txt"));
+        Loan previousLoan = handler.addLoan(LOAN);
+
+        equipment.loadFromStorage();
+        handler.loadFromStorage();
+
+        Equipment currentItem = equipment.getEquipmentList().getFirst();
+        Loan currentLoan = handler.getLoanList().getFirst();
+        assertNotSame(previousItem, currentItem);
+        assertNotSame(previousLoan, currentLoan);
+        assertFalse(previousItem.isLoaned());
+        assertTrue(currentItem.isLoaned());
+        previousLoan.setReturned(true);
+        assertThrows(IllegalStateException.class, () -> previousLoan.setReturned(false));
+        assertTrue(currentItem.isLoaned());
+        assertSame(currentLoan, handler.getLoanList().getFirst());
+        currentLoan.setReturned(true);
+        assertFalse(currentItem.isLoaned());
+    }
+
+    @Test
+    void addLoan_failedSave_leavesEquipmentAvailableAndLoansUnchanged() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Path destination = temporaryDirectory.resolve("loans.txt");
+        Files.createDirectory(destination);
+        Files.writeString(destination.resolve("keep.txt"), "keep this record");
+        LoanHandler handler = new LoanHandler(equipment, destination);
+
+        assertThrows(LoanAdditionUnsuccessful.class, () -> handler.addLoan(LOAN));
+
+        assertFalse(equipment.getEquipmentList().getFirst().isLoaned());
+        assertTrue(handler.getLoanList().isEmpty());
+        assertEquals(0, handler.getLoanCount());
+        assertEquals("keep this record", Files.readString(destination.resolve("keep.txt")));
+    }
+
+    @Test
+    void deleteLoan_failedSave_keepsEquipmentLoanedAndOriginalLoanAttached() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Equipment camera = equipment.getEquipmentList().getFirst();
+        Path destination = temporaryDirectory.resolve("loans.txt");
+        LoanHandler handler = new LoanHandler(equipment, destination);
+        Loan original = handler.addLoan(LOAN);
+        Files.delete(destination);
+        Files.createDirectory(destination);
+        Files.writeString(destination.resolve("keep.txt"), "keep this record");
+
+        LoanDeletionUnsuccessful error = assertThrows(LoanDeletionUnsuccessful.class,
+                // @@author yarnieee
+                () -> handler.deleteLoan("loan-delete l/L001"));
+        // @@author
+        assertTrue(error.getMessage().startsWith("Could not save loan deletion:"));
+
+        assertTrue(camera.isLoaned());
+        assertEquals(List.of(original), handler.getLoanList());
+        assertEquals(1, handler.getLoanCount());
+        assertEquals("keep this record", Files.readString(destination.resolve("keep.txt")));
+        original.setReturned(true);
+        assertFalse(camera.isLoaned());
+    }
+
+    @Test
+    void deleteLoan_returnedHistorySaveFailure_preservesNewerActiveLoanAndAllowsRetry() throws Exception {
+        EquipmentHandler equipment = inventoryWithItems("001");
+        Equipment camera = equipment.getEquipmentList().getFirst();
+        Path destination = temporaryDirectory.resolve("loans.txt");
+        LoanHandler handler = new LoanHandler(equipment, destination);
+        Loan history = handler.addLoan(LOAN);
+        history.setReturned(true);
+        // @@author yarnieee
+        Loan active = handler.addLoan("loan-add e/E001 u/U003 issued/03-10-26 due/04-10-26");
+        // @@author
+        Files.delete(destination);
+        Files.createDirectory(destination);
+        Path sentinel = destination.resolve("keep.txt");
+        Files.writeString(sentinel, "keep this record");
+
+        LoanDeletionUnsuccessful error = assertThrows(LoanDeletionUnsuccessful.class,
+                // @@author yarnieee
+                () -> handler.deleteLoan("loan-delete l/L001"));
+        // @@author
+
+        assertTrue(error.getMessage().startsWith("Could not save loan deletion:"));
+        assertEquals(List.of(history, active), handler.getLoanList());
+        assertEquals(2, handler.getLoanCount());
+        assertTrue(camera.isLoaned());
+        assertEquals("keep this record", Files.readString(sentinel));
+        Files.delete(sentinel);
+        Files.delete(destination);
+
+        // @@author yarnieee
+        assertSame(history, handler.deleteLoan("loan-delete l/L001"));
+        // @@author
+        assertEquals(List.of(active), handler.getLoanList());
+        assertTrue(camera.isLoaned());
+        List<Loan> saved = LoanStorage.load(destination);
+        assertEquals(1, saved.size());
+        assertEquals(active.getIssuedDate(), saved.getFirst().getIssuedDate());
+        assertFalse(saved.getFirst().isReturned());
+        active.setReturned(true);
+        assertFalse(camera.isLoaned());
+    }
+
+    private EquipmentHandler inventoryWithItems(String... ids) throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler equipment = new EquipmentHandler();
+        for (String id : ids) {
+            // @@author yarnieee
+            String typedId = id.matches("[0-9]{3}") ? "E" + id : id;
+            equipment.addEquipment("eqm-add name/Camera " + typedId + " e/" + typedId + " type/camera cond/5");
+            // @@author
+        }
+        return equipment;
+    }
+
+    @Test
+    void save_failedReplacement_preservesDestinationAndCleansTemporaryFile() throws IOException {
+        Path destination = temporaryDirectory.resolve("loans.txt");
+        Files.createDirectory(destination);
+        Files.writeString(destination.resolve("keep.txt"), "keep this record");
+        // @@author yarnieee
+        Loan loan = new Loan("L001", "E001", "U002", LocalDateTime.of(2026, 10, 1, 0, 0),
+                // @@author
+                LocalDateTime.of(2026, 10, 2, 0, 0));
+
+        assertThrows(IOException.class, () -> LoanStorage.save(destination, List.of(loan)));
+
+        assertEquals("keep this record", Files.readString(destination.resolve("keep.txt")));
+        try (Stream<Path> files = Files.list(temporaryDirectory)) {
+            assertTrue(files.noneMatch(path -> path.getFileName().toString().startsWith("loans-")));
+        }
+    }
+}

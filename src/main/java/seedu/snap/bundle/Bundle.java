@@ -1,0 +1,181 @@
+// @@author yarnieee
+package seedu.snap.bundle;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import seedu.snap.Identifier;
+import seedu.snap.equipment.Equipment;
+
+/** Represents a named group of equipment with a required composition. */
+public class Bundle {
+    private static final String CAMERA_TYPE = "camera";
+    private static final String BATTERY_TYPE = "battery";
+    private static final String TRIPOD_TYPE = "tripod";
+    private static final String LENS_TYPE = "lens";
+    private static final Logger LOGGER = Logger.getLogger(Bundle.class.getName());
+
+    private final String bundleName;
+    private final String bundleId;
+    // @@author
+    /** References to inventory items so updates to their names and conditions remain visible in the bundle. */
+    // @@author yarnieee
+    private final ArrayList<Equipment> equipment = new ArrayList<>();
+    private boolean isComplete;
+
+    /**
+     * Creates an initially incomplete bundle.
+     *
+     * @param name bundle name
+     * @param id typed bundle ID from B001 to B999
+     */
+    public Bundle(String name, String id) {
+        this.bundleName = name;
+        this.bundleId = id;
+        this.isComplete = false;
+        assert hasValidIdentity() : "Bundle identity must contain valid values.";
+        assert !isComplete : "A new bundle must be incomplete.";
+        LOGGER.log(Level.INFO, "Created bundle {0} with ID {1}.",
+                new Object[] {name, id});
+    }
+
+    /** @return the bundle name */
+    public String getBundleName() {
+        return bundleName;
+    }
+
+    /** @return the bundle ID */
+    public String getBundleId() {
+        return bundleId;
+    }
+
+    /** @return whether this bundle currently satisfies its composition requirements */
+    public boolean isComplete() {
+        return isComplete;
+    }
+
+    // @@author
+    /** Names missing required types using the same type counts as the composition check. A tripod is optional. */
+    public List<String> getMissingEquipmentTypes() {
+        List<String> missing = new ArrayList<>();
+        for (String type : List.of(CAMERA_TYPE, LENS_TYPE, BATTERY_TYPE)) {
+            if (countType(type) == 0) {
+                missing.add(type);
+            }
+        }
+        return List.copyOf(missing);
+    }
+
+    // @@author yarnieee
+    /**
+     * Returns the equipment currently contained in this bundle.
+     *
+     * @return an unmodifiable view of the bundle contents
+     */
+    public List<Equipment> getEquipmentList() {
+        return Collections.unmodifiableList(equipment);
+    }
+
+    /**
+     * Checks whether this bundle already contains an equipment item.
+     *
+     * @param itemId equipment ID to find
+     * @return true when the equipment ID is already present
+     */
+    public boolean containsEquipmentId(String itemId) {
+        for (Equipment item : equipment) {
+            if (item.getItemId().equals(itemId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Counts the equipment of a particular type in this bundle.
+     *
+     * @param type canonical equipment type
+     * @return number of matching items
+     */
+    public int countType(String type) {
+        int count = 0;
+        for (Equipment item : equipment) {
+            if (item.getType().equals(type)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Adds an already-validated item and refreshes the completion state.
+     *
+     * @param item equipment to add
+     */
+    public void addEquipment(Equipment item) {
+        if (item == null) {
+            throw new IllegalArgumentException("Equipment cannot be null.");
+        }
+        assert !containsEquipmentId(item.getItemId()) : "Bundle contents must not contain duplicate IDs.";
+        equipment.add(item);
+        updateCompletionState();
+        assert equipment.contains(item) : "Added equipment must be present in the bundle.";
+        LOGGER.log(Level.INFO, "Added equipment {0} to bundle {1}.",
+                new Object[] {item.getItemId(), bundleId});
+    }
+
+    // @@author
+    /**
+     * Removes one equipment item from this bundle and refreshes its completion state.
+     *
+     * @param itemId equipment ID to remove
+     * @return true when an item was removed, or false when the bundle did not contain it
+     */
+    public boolean removeEquipmentById(String itemId) {
+        if (itemId == null) {
+            return false;
+        }
+        for (int index = 0; index < equipment.size(); index++) {
+            if (equipment.get(index).getItemId().equals(itemId)) {
+                equipment.remove(index);
+                updateCompletionState();
+                assert !containsEquipmentId(itemId) : "Removed equipment must not remain in the bundle.";
+                LOGGER.log(Level.INFO, "Removed equipment {0} from bundle {1}.",
+                        new Object[] {itemId, bundleId});
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Restores a previous equipment snapshot after a failed persistence operation. */
+    void restoreEquipment(List<Equipment> previousEquipment) {
+        if (previousEquipment == null) {
+            throw new IllegalArgumentException("Previous equipment cannot be null.");
+        }
+        equipment.clear();
+        equipment.addAll(previousEquipment);
+        updateCompletionState();
+        assert equipment.equals(previousEquipment) : "Bundle rollback must restore all equipment";
+    }
+
+    // @@author yarnieee
+    /** Recomputes whether the bundle meets all required type counts. */
+    private void updateCompletionState() {
+        int cameraCount = countType(CAMERA_TYPE);
+        int batteryCount = countType(BATTERY_TYPE);
+        int tripodCount = countType(TRIPOD_TYPE);
+        int lensCount = countType(LENS_TYPE);
+        isComplete = cameraCount == 1 && batteryCount >= 1 && tripodCount <= 1 && lensCount >= 1;
+    }
+
+    /** @return whether the bundle identity is valid */
+    private boolean hasValidIdentity() {
+        return bundleName != null && !bundleName.isBlank() && bundleName.length() <= 100
+                && Identifier.isValid(bundleId, Identifier.Type.BUNDLE);
+    }
+}
+    // @@author

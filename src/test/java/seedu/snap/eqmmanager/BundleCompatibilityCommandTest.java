@@ -1,0 +1,73 @@
+package seedu.snap.eqmmanager;
+
+// @@author Rohita-29
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+/** Tests bundle compatibility validation through the application command interface. */
+class BundleCompatibilityCommandTest {
+    private final ByteArrayOutputStream output = new ByteArrayOutputStream();
+    private PrintStream originalOutput;
+
+    @TempDir
+    private Path temporaryDirectory;
+
+    @BeforeEach
+    void redirectOutput() {
+        originalOutput = System.out;
+        System.setOut(new PrintStream(output, true, StandardCharsets.UTF_8));
+    }
+
+    @AfterEach
+    void restoreOutput() {
+        System.setOut(originalOutput);
+    }
+
+    @Test
+    void addToBundle_incompatibleAndCompatibleCandidates_reportsAndStoresEachResult() {
+        EqmManager manager = new EqmManager(temporaryDirectory);
+        manager.executeInput("eqm-add name/Camera e/E001 type/camera cond/1 sensor/APS-C"
+                + " mount/Canon RF battery/LP-E17");
+        manager.executeInput("eqm-add name/Incompatible Lens e/E002 type/lens cond/1"
+                + " mount/Nikon Z sensor/APS-C");
+        manager.executeInput("eqm-add name/Compatible Battery e/E003 type/battery cond/1"
+                + " battery/lp-e17");
+        manager.executeInput("bundle-create name/Camera Kit");
+        manager.executeInput("bundle-add-eqm b/B001 E001");
+        output.reset();
+
+        manager.executeInput("bundle-add-eqm b/B001 E002 E003");
+
+        String printed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(printed.contains("[ERROR] Equipment ID E002 was not added:"
+                + " equipment is incompatible with equipment ID E001."));
+        assertTrue(printed.contains("[OK] Equipment ID E003 added to bundle B001 successfully."
+                + " Name: \"Compatible Battery\"."));
+        assertEquals(1, printed.lines().filter(line -> line.startsWith("[OK]")).count());
+        assertEquals(1, printed.lines().filter(line -> line.startsWith("[ERROR]")).count());
+        assertTrue(printed.contains("1 membership added; 1 failed."));
+        assertTrue(printed.contains("Composition: Incomplete (missing lens)"));
+
+        output.reset();
+        manager.executeInput("bundle-list");
+        String listing = output.toString(StandardCharsets.UTF_8);
+
+        assertTrue(listing.contains("Camera"));
+        assertTrue(listing.contains("Compatible Battery"));
+        assertFalse(listing.contains("Incompatible Lens"));
+    }
+}
+
+// @@author

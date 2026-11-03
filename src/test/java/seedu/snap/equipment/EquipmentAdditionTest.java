@@ -1,0 +1,296 @@
+package seedu.snap.equipment;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.util.List;
+
+import org.junit.jupiter.api.Test;
+
+import seedu.snap.exceptions.EquipmentAdditionUnsuccessful;
+
+/** Tests equipment addition boundaries, malformed input, and recovery without changing other features. */
+class EquipmentAdditionTest {
+    // @@author yarnieee
+    private static final String FORMAT_ERROR = "Invalid format. Use: eqm-add name/[ITEM] e/[ITEM ID] "
+            // @@author
+            + "type/[TYPE] cond/[CONDITION]";
+
+    @Test
+    void addEquipment_validBoundaries_preservesFields() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = new EquipmentHandler();
+        String[] names = {"A", "A".repeat(100), "Camera \u76f8\u673a", "fluid/head tripod"};
+        // @@author yarnieee
+        String[] ids = {"E001", "E002", "E998", "E999"};
+        // @@author
+        for (int i = 0; i < names.length; i++) {
+            Equipment item = handler.addEquipment(command(names[i], ids[i], "camera", "10"));
+            assertEquals(names[i], item.getItemName());
+            assertEquals(ids[i], item.getItemId());
+            assertEquals("camera", item.getType());
+            assertEquals(10, item.getCondition());
+            assertEquals(i + 1, handler.getEquipmentList().size());
+        }
+    }
+
+    // @@author yarnieee
+    @Test
+    void addEquipment_lowercaseId_normalisesStoredValue() throws EquipmentAdditionUnsuccessful {
+        Equipment item = new EquipmentHandler().addEquipment(command("Camera", "e001", "camera", "1"));
+
+        assertEquals("E001", item.getItemId());
+    }
+
+    // @@author
+    @Test
+    void addEquipment_withoutRemarks_usesEmptyDefault() throws EquipmentAdditionUnsuccessful {
+        Equipment item = new EquipmentHandler().addEquipment(command("Camera", "001", "camera", "1"));
+
+        assertEquals("", item.getRemarks());
+    }
+
+    @Test
+    void addEquipment_withRemarks_preservesFreeFormText() throws EquipmentAdditionUnsuccessful {
+        String remarks = "Lens has a small scratch; handle with care.";
+
+        Equipment item = new EquipmentHandler().addEquipment(
+                command("Lens", "001", "lens", "3", remarks));
+
+        assertEquals(remarks, item.getRemarks());
+    }
+
+    @Test
+    void parseEquipment_remarksTextInsideName_preservesName()
+            throws EquipmentAdditionUnsuccessful {
+        Equipment item = EquipmentHandler.parseEquipment(
+                command("Camera remarks/adapter", "002", "camera", "1"));
+
+        assertEquals("Camera remarks/adapter", item.getItemName());
+        assertEquals("", item.getRemarks());
+    }
+
+    @Test
+    void addEquipment_invalidRemarks_rejectsWithoutChangingInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        String expectedMessage = "Remarks must contain at most 200 characters and no line breaks.";
+
+        assertRejected(handler, command("Tripod", "002", "tripod", "5", "r".repeat(201)),
+                expectedMessage);
+        assertRejected(handler, command("Tripod", "002", "tripod", "5", "line one\nline two"),
+                expectedMessage);
+    }
+
+    @Test
+    void parseEquipment_prefixTextInsideWords_preservesNamesAndTypes()
+            throws EquipmentAdditionUnsuccessful {
+        String[] values = {
+            "mini/camera", "fluid/head", "prototype/body", "second/hand",
+            "mini/camera fluid/head prototype/body second/hand"
+        };
+        for (String value : values) {
+            Equipment item = EquipmentHandler.parseEquipment(command(value, "002", "camera", "5"));
+            assertEquals(value, item.getItemName());
+            assertEquals("camera", item.getType());
+            // @@author yarnieee
+            assertEquals("E002", item.getItemId());
+            // @@author
+            assertEquals(5, item.getCondition());
+        }
+    }
+
+    @Test
+    void addEquipment_missingSeparators_preservesInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        String[] commands = {
+            // @@author yarnieee
+            "addi/Camera id/E002 type/camera cond/1",
+            "eqm-add name/Camerae/002 type/camera cond/1",
+            "eqm-add name/Camera e/E002type/camera cond/1",
+            "eqm-add name/Camera e/E002 type/cameracond/1",
+            "eqm-add name/Camerae/002type/cameracond/1"
+            // @@author
+        };
+        for (String input : commands) {
+            assertRejected(handler, input, FORMAT_ERROR);
+        }
+    }
+
+    @Test
+    void parseEquipment_textIdPrefixesInName_preservesName() throws EquipmentAdditionUnsuccessful {
+        // @@author yarnieee
+        String[] names = {"USB e/card reader", "e/card reader", "USB e/card e/tag reader"};
+        // @@author
+        for (String name : names) {
+            Equipment item = EquipmentHandler.parseEquipment(command(name, "002", "lens", "1"));
+            assertEquals(name, item.getItemName());
+            // @@author yarnieee
+            assertEquals("E002", item.getItemId());
+            // @@author
+            assertEquals("lens", item.getType());
+        }
+    }
+
+    @Test
+    void addEquipment_reservedIdSyntaxAndMisplacedText_preservesInventory()
+            throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        String[] inputs = {
+            // @@author yarnieee
+            "eqm-add name/USB e/E003 reader e/E002 type/lens cond/1",
+            "eqm-add name/USB e/+03 reader e/E002 type/lens cond/1",
+            "eqm-add name/USB e/-03 reader e/E002 type/lens cond/1",
+            "eqm-add name/USB e/ reader e/E002 type/lens cond/1",
+            "eqm-add name/USB e/E002 e/card type/lens cond/1",
+            "eqm-add name/USB e/E002 type/lens e/card cond/1"
+            // @@author
+        };
+        for (String input : inputs) {
+            assertRejected(handler, input, FORMAT_ERROR);
+        }
+        assertRejected(handler, command("USB reader", "card", "lens", "1"),
+                // @@author yarnieee
+                "Item ID must be from E001 to E999.");
+        // @@author
+    }
+
+    @Test
+    void parseEquipment_allValidConditions_acceptsEach() throws EquipmentAdditionUnsuccessful {
+        for (int condition = 1; condition <= 10; condition++) {
+            Equipment item = EquipmentHandler.parseEquipment(command("Camera", "001", "camera", "" + condition));
+            assertEquals(condition, item.getCondition());
+        }
+    }
+
+    @Test
+    void parseEquipment_fieldWhitespace_trimsValues() throws EquipmentAdditionUnsuccessful {
+        // @@author yarnieee
+        Equipment item = EquipmentHandler.parseEquipment("eqm-add name/  Film Camera  \te/E001  type/ "
+                + "camera  cond/1  ");
+        // @@author
+        assertEquals("Film Camera", item.getItemName());
+        // @@author yarnieee
+        assertEquals("E001", item.getItemId());
+        // @@author
+        assertEquals("camera", item.getType());
+        assertEquals(1, item.getCondition());
+    }
+
+    @Test
+    void addEquipment_invalidNamesAndTypes_preservesInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        for (String name : new String[]{"", "   ", "\t", "\u2003", "A".repeat(101)}) {
+            assertRejected(handler, command(name, "002", "camera", "1"),
+                    "Item name must contain 1 to 100 characters.");
+        }
+        for (String type : new String[]{"", "   ", "\t", "\u2003"}) {
+            assertRejected(handler, command("Camera", "002", type, "1"), "Type cannot be empty.");
+        }
+    }
+
+    @Test
+    void addEquipment_invalidIds_preservesInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        // @@author yarnieee
+        String[] ids = {"", "000", "0", "01", "0001", "1000", "-01", "+01", "1.0", "abc", "0 02",
+            "\u0660\u0660\u0662", "L001", "B001", "U001"};
+        // @@author
+        for (String id : ids) {
+            // @@author yarnieee
+            assertRejected(handler, command("Camera", id, "camera", "1"), "Item ID must be from E001 to E999.");
+            // @@author
+        }
+    }
+
+    @Test
+    void addEquipment_invalidConditions_preservesInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        String[] conditions = {"", "0", "11", "-1", "+1", "01", "1.0", "1e0", "2147483648", "one", "1 extra"};
+        for (String condition : conditions) {
+            assertRejected(handler, command("Camera", "002", "camera", condition),
+                    "Condition must be a whole number from 1 to 10.");
+        }
+    }
+
+    @Test
+    void addEquipment_malformedCommands_preservesInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        String[] commands = {
+            // @@author yarnieee
+            null, "", " ", "eqm-add", "additions name/Camera e/E002 type/camera cond/1",
+            "add Camera id/E002 type/camera cond/1",
+            "eqm-add name/Camera type/camera cond/1",
+            "eqm-add name/Camera e/E002 cond/1",
+            "eqm-add name/Camera e/E002 type/camera",
+            "add id/E002 i/Camera type/camera cond/1",
+            "eqm-add name/Camera type/camera e/E002 cond/1",
+            "add unexpected i/Camera id/E002 type/camera cond/1",
+            "eqm-add name/Camera name/Tripod e/E002 type/camera cond/1",
+            "eqm-add name/Camera e/E002 e/E003 type/camera cond/1",
+            "eqm-add name/Camera e/E002 type/camera type/battery cond/1",
+            "eqm-add name/Camera e/E002 type/camera cond/1 cond/2"
+            // @@author
+        };
+        for (String input : commands) {
+            List<Equipment> before = List.copyOf(handler.getEquipmentList());
+            assertThrows(EquipmentAdditionUnsuccessful.class, () -> handler.addEquipment(input), input);
+            assertEquals(before, handler.getEquipmentList());
+        }
+    }
+
+    @Test
+    void addEquipment_multipleErrors_validatesFieldsBeforeCheckingDuplicates()
+            throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        assertRejected(handler, command("Camera", "001", "camera", "11"),
+                "Condition must be a whole number from 1 to 10.");
+        // @@author yarnieee
+        assertRejected(handler, "eqm-add name/Camera e/E001", FORMAT_ERROR);
+        // @@author
+    }
+
+    @Test
+    void addEquipment_repeatedRejections_acceptsNextValidItem() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = seededInventory();
+        for (int i = 0; i < 3; i++) {
+            assertRejected(handler, command("Replacement", "001", "battery", "5"),
+                    // @@author yarnieee
+                    "Item ID E001 already exists.");
+            // @@author
+            assertRejected(handler, command("Tripod", "002", "tripod", "11"),
+                    "Condition must be a whole number from 1 to 10.");
+        }
+        Equipment original = handler.getEquipmentList().getFirst();
+        Equipment next = handler.addEquipment(command("Tripod", "002", "tripod", "5"));
+        assertEquals(List.of(original, next), handler.getEquipmentList());
+    }
+
+    /** Gives rejection tests an existing record to protect. */
+    private EquipmentHandler seededInventory() throws EquipmentAdditionUnsuccessful {
+        EquipmentHandler handler = new EquipmentHandler();
+        handler.addEquipment(command("Original camera", "001", "camera", "1"));
+        return handler;
+    }
+
+    /** Builds the documented command format while keeping boundary values readable in tests. */
+    private String command(String name, String id, String type, String condition) {
+        return command(name, id, type, condition, "");
+    }
+
+    /** Builds an add command with optional remarks. */
+    private String command(String name, String id, String type, String condition, String remarks) {
+        String remarkField = remarks.isEmpty() ? "" : " remarks/" + remarks;
+        // @@author yarnieee
+        String typedId = id != null && id.matches("[0-9]{3}") ? "E" + id : id;
+        return "eqm-add name/" + name + " e/" + typedId + " type/" + type + " cond/" + condition + remarkField;
+        // @@author
+    }
+
+    /** Checks the error reason and protects the inventory's contents and order on every rejection. */
+    private void assertRejected(EquipmentHandler handler, String input, String expectedMessage) {
+        List<Equipment> before = List.copyOf(handler.getEquipmentList());
+        EquipmentAdditionUnsuccessful exception = assertThrows(EquipmentAdditionUnsuccessful.class,
+                () -> handler.addEquipment(input), input);
+        assertEquals(expectedMessage, exception.getMessage(), input);
+        assertEquals(before, handler.getEquipmentList(), input);
+    }
+}

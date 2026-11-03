@@ -1,0 +1,147 @@
+package seedu.snap.eqmmanager;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+// @@author MatthewLeon888
+/** Tests borrower-loan queries through command routing and user-facing output. */
+class LoanBorrowerIntegrationTest {
+    private static final Clock FIXED_CLOCK = Clock.fixed(Instant.parse("2026-10-27T12:00:00Z"), ZoneOffset.UTC);
+    private final ByteArrayOutputStream output = new ByteArrayOutputStream();
+    private PrintStream originalOutput;
+
+    @TempDir
+    private Path temporaryDirectory;
+
+    @BeforeEach
+    void redirectOutput() {
+        originalOutput = System.out;
+        System.setOut(new PrintStream(output, true, StandardCharsets.UTF_8));
+    }
+
+    @AfterEach
+    void restoreOutput() {
+        System.setOut(originalOutput);
+    }
+
+    @Test
+    void listBorrower_validCommand_displaysOnlyActiveLoansForBorrower() {
+        EqmManager manager = createManagerWithLoans();
+        output.reset();
+
+        manager.executeInput("loan-list-borrower u/U002");
+
+        String printed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(printed.contains("Equipment currently held by borrower ID U002:"));
+        assertEquals(List.of("L002"), displayedLoanIds(printed));
+        assertTrue(printed.contains("03-10-26"));
+        assertTrue(printed.contains("12-10-26"));
+        assertTrue(printed.contains("Overdue"));
+        assertTrue(printed.contains("1 loan."));
+        assertFalse(printed.contains("Returned"));
+        assertFalse(printed.contains("T00:00"));
+    }
+
+    @Test
+    void legacyMemberCommand_isRejectedAndNewQueryRemainsUsable() {
+        EqmManager manager = createManagerWithLoans();
+        output.reset();
+
+        manager.executeInput("loan-list-borrower u/U999");
+        manager.executeInput("loan-list-borrower u/abc");
+        manager.executeInput("loan-list-borrower u/U002");
+
+        String printed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(printed.contains("No member found for borrower ID U999."));
+        assertTrue(printed.contains("Invalid format. Use: loan-list-borrower u/[BORROWER ID], from U000 to U999."));
+        assertTrue(printed.contains("Equipment currently held by borrower ID U002:"));
+    }
+
+    @Test
+    void listBorrower_missingId_reportsErrorInsteadOfListingAllEquipment() {
+        EqmManager manager = createManagerWithLoans();
+        output.reset();
+
+        manager.executeInput("loan-list-borrower");
+        manager.executeInput("loan-list-borrower");
+
+        String printed = output.toString(StandardCharsets.UTF_8);
+        String error = "[ERROR] Invalid format. Use: loan-list-borrower u/[BORROWER ID], from U000 to U999.";
+        assertEquals(2, printed.lines().filter(error::equals).count());
+        assertFalse(printed.contains("NAME"));
+    }
+
+    @Test
+    void listBorrower_knownBorrowerWithNoActiveLoans_reportsEmptyResult() {
+        EqmManager manager = new EqmManager(temporaryDirectory, FIXED_CLOCK);
+        manager.executeInput("eqm-add name/Camera e/E001 type/camera cond/4");
+        manager.executeInput("loan-add e/E001 u/U002 issued/01-10-26 due/10-10-26");
+        manager.executeInput("loan-return l/L001 serviceable/yes damage/NONE remarks/");
+        output.reset();
+
+        manager.executeInput("loan-list-borrower u/U002");
+
+        assertTrue(output.toString(StandardCharsets.UTF_8)
+                .contains("No active loans found for borrower ID U002."));
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("0 loans."));
+    }
+
+    @Test
+    void listBorrower_afterRestartReadsPersistedActiveLoansWithoutWriting() throws Exception {
+        createManagerWithLoans();
+        Path equipmentFile = temporaryDirectory.resolve("equipment.txt");
+        Path loanFile = temporaryDirectory.resolve("loans.txt");
+        Path sequenceFile = temporaryDirectory.resolve("loan-sequence.txt");
+        String savedEquipment = Files.readString(equipmentFile);
+        String savedLoans = Files.readString(loanFile);
+        String savedSequence = Files.readString(sequenceFile);
+        EqmManager restarted = new EqmManager(temporaryDirectory, FIXED_CLOCK);
+        output.reset();
+
+        restarted.executeInput("loan-list-borrower u/U002");
+
+        String printed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(printed.contains("Equipment currently held by borrower ID U002:"));
+        assertEquals(List.of("L002"), displayedLoanIds(printed));
+        assertTrue(printed.contains("1 loan."));
+        assertEquals(savedEquipment, Files.readString(equipmentFile));
+        assertEquals(savedLoans, Files.readString(loanFile));
+        assertEquals(savedSequence, Files.readString(sequenceFile));
+    }
+
+    /** Creates active, returned and unrelated loans for the routing scenarios. */
+    private EqmManager createManagerWithLoans() {
+        EqmManager manager = new EqmManager(temporaryDirectory, FIXED_CLOCK);
+        manager.executeInput("eqm-add name/Camera e/E001 type/camera cond/4");
+        manager.executeInput("eqm-add name/Tripod e/E002 type/tripod cond/5");
+        manager.executeInput("eqm-add name/Lens e/E003 type/lens cond/5");
+        manager.executeInput("loan-add e/E001 u/U002 issued/01-10-26 due/10-10-26");
+        manager.executeInput("loan-add e/E002 u/U002 issued/03-10-26 due/12-10-26");
+        manager.executeInput("loan-add e/E003 u/U003 issued/03-10-26 due/12-10-26");
+        manager.executeInput("loan-return l/L001 serviceable/yes damage/NONE remarks/");
+        return manager;
+    }
+
+    /** Reads loan IDs from data rows without depending on the amount of column padding. */
+    private List<String> displayedLoanIds(String printed) {
+        return printed.lines().filter(line -> line.matches("\\| L\\d{3} .*"))
+                .map(line -> line.split("\\|", -1)[1].strip()).toList();
+    }
+}
+// @@author

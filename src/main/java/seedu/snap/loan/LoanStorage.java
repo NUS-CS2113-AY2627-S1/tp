@@ -1,0 +1,421 @@
+package seedu.snap.loan;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+// @@author yarnieee
+import java.util.HashSet;
+// @@author
+import java.util.List;
+// @@author yarnieee
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import seedu.snap.Identifier;
+// @@author
+import seedu.snap.exceptions.LoanAdditionUnsuccessful;
+
+// @@author MatthewLeon888
+
+/** Loads and saves loan records in a readable UTF-8 text file. */
+final class LoanStorage {
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd-MM-uu");
+    private static final Logger logger = Logger.getLogger(LoanStorage.class.getName());
+    private static final int FIRST_LOAN_NUMBER = 1;
+    private static final int MAX_LOAN_NUMBER = 999;
+
+    private LoanStorage() {
+        // Utility class; do not instantiate.
+    }
+
+    /**
+     * Loads loan records from each non-blank line in the supplied file.
+     * The optional returned field is accepted for compatibility with older files;
+     * newly saved records always include it.
+     *
+     * @param file file containing saved loans
+     * @return parsed loan records
+     * @throws IOException if the file cannot be read or contains an invalid record
+     */
+    static List<Loan> load(Path file) throws IOException {
+        return load(file, null).loans();
+    }
+
+    /** Loads loans and the next monotonic identifier from their persistence files. */
+    static LoadedLoans load(Path file, Path sequenceFile) throws IOException {
+        List<LoanRecord> records = new ArrayList<>();
+        if (Files.notExists(file)) {
+            return new LoadedLoans(List.of(), readNextLoanNumber(sequenceFile, FIRST_LOAN_NUMBER), false);
+        }
+
+        int lineNumber = 0;
+        for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+            lineNumber++;
+            if (line.isBlank()) {
+                continue;
+            }
+            try {
+                records.add(parseRecord(line.trim()));
+            } catch (LoanAdditionUnsuccessful | IllegalArgumentException exception) {
+                throw new IOException("Invalid loan record on line " + lineNumber + ": "
+                        + exception.getMessage(), exception);
+            }
+        }
+
+        Set<String> explicitLoanIds = new HashSet<>();
+        for (LoanRecord record : records) {
+            if (record.loanId() != null && !explicitLoanIds.add(record.loanId())) {
+                throw new IOException("Duplicate loan ID " + record.loanId() + ".");
+            }
+        }
+
+        int migrationNumber = readNextLoanNumber(sequenceFile, FIRST_LOAN_NUMBER);
+        List<Loan> loaded = new ArrayList<>();
+        Set<String> allLoanIds = new HashSet<>();
+        for (LoanRecord record : records) {
+            String loanId = record.loanId();
+            if (loanId == null) {
+                while (migrationNumber <= MAX_LOAN_NUMBER
+                        && explicitLoanIds.contains(formatLoanId(migrationNumber))) {
+                    migrationNumber++;
+                }
+                if (migrationNumber > MAX_LOAN_NUMBER) {
+                    throw new IOException("Legacy loan records exceed the 999 loan ID limit.");
+                }
+                loanId = formatLoanId(migrationNumber++);
+                logger.log(Level.INFO, "Assigned migrated loan record the ID {0}.", loanId);
+            }
+            if (!allLoanIds.add(loanId)) {
+                throw new IOException("Duplicate loan ID " + loanId + ".");
+            }
+            Loan loan =
+                    new Loan(
+                            loanId,
+                            record.itemId(),
+                            record.borrowerId(),
+                            record.issuedDate(),
+                            record.dueDate(),
+                            record.equipmentRecordId(),
+                            record.issueConditionSnapshot(),
+                            record.returnAssessment(),
+                            record.issueServiceability());
+            loan.setReturned(record.returned());
+            loaded.add(loan);
+        }
+
+        int minimumNextNumber = FIRST_LOAN_NUMBER;
+        for (Loan loan : loaded) {
+            minimumNextNumber = Math.max(minimumNextNumber,
+                    Identifier.number(loan.getLoanId(), Identifier.Type.LOAN) + 1);
+        }
+        int nextLoanNumber = readNextLoanNumber(sequenceFile, minimumNextNumber);
+        if (nextLoanNumber < minimumNextNumber) {
+            logger.log(Level.WARNING, "Loan sequence was behind the loaded records; advancing to {0}.",
+                    minimumNextNumber);
+            nextLoanNumber = minimumNextNumber;
+        }
+        boolean migrated = records.stream().anyMatch(record -> record.loanId() == null || record.migrated());
+        return new LoadedLoans(loaded, nextLoanNumber, migrated || sequenceNeedsMigration(sequenceFile));
+    }
+
+    /** Saves records through a temporary file before replacing the destination. */
+    static void save(Path file, List<Loan> loans) throws IOException {
+        save(file, loans, null, FIRST_LOAN_NUMBER);
+    }
+
+    /** Saves loan records and their next-ID sequence, rolling back both files if either replacement fails. */
+    static void save(Path file, List<Loan> loans, Path sequenceFile, int nextLoanNumber) throws IOException {
+        if (nextLoanNumber < FIRST_LOAN_NUMBER || nextLoanNumber > MAX_LOAN_NUMBER + 1) {
+            throw new IOException("Next loan ID is outside the supported range.");
+        }
+        FileSnapshot loanSnapshot = FileSnapshot.capture(file);
+        FileSnapshot sequenceSnapshot = sequenceFile == null ? null : FileSnapshot.capture(sequenceFile);
+        try {
+            saveLoanFile(file, loans);
+            if (sequenceFile != null) {
+                saveSequenceFile(sequenceFile, nextLoanNumber);
+            }
+        } catch (IOException exception) {
+            try {
+                loanSnapshot.restore();
+                if (sequenceSnapshot != null) {
+                    sequenceSnapshot.restore();
+                }
+            } catch (IOException rollbackException) {
+                exception.addSuppressed(rollbackException);
+            }
+            throw exception;
+        }
+    }
+
+    /** Saves only the loan records to a temporary replacement file. */
+    private static void saveLoanFile(Path file, List<Loan> loans) throws IOException {
+        Path parent = file.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
+        Path temporaryFile = Files.createTempFile(parent, "loans-", ".tmp");
+        try {
+            List<String> lines = new ArrayList<>();
+            for (Loan loan : loans) {
+                assert loan != null : "Loan being saved must not be null";
+                lines.add(toStorageLine(loan));
+            }
+            Files.write(temporaryFile, lines, StandardCharsets.UTF_8);
+            Files.move(temporaryFile, file, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporaryFile);
+        }
+    }
+
+    /** Saves the monotonic next-ID value through a temporary replacement file. */
+    private static void saveSequenceFile(Path file, int nextLoanNumber) throws IOException {
+        Path parent = file.toAbsolutePath().getParent();
+        Files.createDirectories(parent);
+        Path temporaryFile = Files.createTempFile(parent, "loan-sequence-", ".tmp");
+        try {
+            Files.writeString(temporaryFile, "nextLoanId/" + formatSequenceNumber(nextLoanNumber)
+                    + System.lineSeparator(), StandardCharsets.UTF_8);
+            Files.move(temporaryFile, file, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporaryFile);
+        }
+    }
+
+    /** Converts a loan into a readable, reloadable text record. */
+    private static String toStorageLine(Loan loan) throws IOException {
+        if (loan.getLoanId() == null) {
+            throw new IOException("Saved loans must have a loan ID.");
+        }
+        String loanId;
+        String itemId;
+        String borrowerId;
+        try {
+            loanId = Identifier.normalize(loan.getLoanId(), Identifier.Type.LOAN);
+            itemId = Identifier.normalize(loan.getItemId(), Identifier.Type.EQUIPMENT);
+            borrowerId = Identifier.normalize(loan.getBorrowerId(), Identifier.Type.BORROWER);
+        } catch (IllegalArgumentException exception) {
+            throw new IOException("Saved loan identifiers must use their canonical uppercase formats.", exception);
+        }
+
+        String record =
+                "loan loanId/" + loanId
+                        + " id/" + itemId
+                        + " b/" + borrowerId
+                        + " issued/"
+                        + DATE_FORMATTER.format(loan.getIssuedDate())
+                        + " due/"
+                        + DATE_FORMATTER.format(loan.getDueDate())
+                        + " returned/" + loan.isReturned();
+
+        if (loan.getEquipmentRecordId() != null) {
+            record += " equipment/" + loan.getEquipmentRecordId();
+        }
+
+        EquipmentConditionSnapshot snapshot =
+                loan.getIssueConditionSnapshot();
+        if (snapshot != null) {
+            record += " "
+                    + EquipmentConditionSnapshotCodec.encode(snapshot);
+
+            if (loan.getIssueServiceability() != null) {
+                record += " issueServiceable/" + (loan.getIssueServiceability() ? "yes" : "no");
+            }
+        }
+
+        if (loan.getReturnAssessment() != null) {
+            record += " " + LoanReturnAssessmentCodec.encode(loan.getReturnAssessment());
+        }
+
+        return record;
+    }
+
+    /** Parses records with optional return status, equipment identity, issue snapshot and return assessment. */
+    private static LoanRecord parseRecord(String line) throws LoanAdditionUnsuccessful {
+        String[] fields = line.split("\\s+");
+        boolean hasLoanId = fields.length >= 2 && fields[1].startsWith("loanId/");
+        int expectedMinimumFields = hasLoanId ? 6 : 5;
+        if (fields.length < expectedMinimumFields
+                || !fields[0].equals("loan")) {
+            throw new IllegalArgumentException("Expected loanId/LNNN id/ENNN b/UNNN issued/DD-MM-YY due/DD-MM-YY.");
+        }
+
+        int offset = hasLoanId ? 1 : 0;
+        String rawLoanId = hasLoanId ? parseField(fields[1], "loanId/") : null;
+        String loanId = hasLoanId ? parseTypedValue(rawLoanId, Identifier.Type.LOAN, "Loan ID") : null;
+        String rawItemId = parseField(fields[1 + offset], "id/");
+        String itemId = parseTypedValue(rawItemId, Identifier.Type.EQUIPMENT, "Item ID");
+        String rawBorrowerId = parseField(fields[2 + offset], "b/");
+        String borrowerId = parseTypedValue(rawBorrowerId, Identifier.Type.BORROWER, "Borrower ID");
+        String issuedText = parseField(fields[3 + offset], "issued/");
+        String dueText = parseField(fields[4 + offset], "due/");
+        Loan parsed = LoanHandler.parseLoanRecord("loan id/" + itemId + " b/" + borrowerId
+                + " issued/" + issuedText + " due/" + dueText);
+
+        boolean returned = false;
+        int nextField = expectedMinimumFields;
+
+        if (nextField < fields.length && fields[nextField].startsWith("returned/")) {
+            returned = parseReturnedField(fields[nextField++]);
+        }
+
+        String equipmentRecordId = null;
+        if (nextField < fields.length
+                && fields[nextField].startsWith("equipment/")) {
+            equipmentRecordId = parseField(fields[nextField++], "equipment/");
+            if (!Loan.isValidEquipmentRecordId(equipmentRecordId)) {
+                throw new IllegalArgumentException("Equipment record identity must be a canonical UUID.");
+            }
+        }
+
+        EquipmentConditionSnapshot issueConditionSnapshot = null;
+        Boolean issueServiceability = null;
+        if (nextField < fields.length && fields[nextField].startsWith("issueType/")) {
+            issueConditionSnapshot = EquipmentConditionSnapshotCodec.decode(fields, nextField);
+            nextField += EquipmentConditionSnapshotCodec.FIELD_COUNT;
+
+            if (nextField < fields.length && fields[nextField].startsWith("issueServiceable/")) {
+                String value = parseField(fields[nextField++], "issueServiceable/");
+                if (!value.equals("yes") && !value.equals("no")) {
+                    throw new IllegalArgumentException("Expected issueServiceable/yes or issueServiceable/no.");
+                }
+                issueServiceability = value.equals("yes");
+            }
+        }
+
+        LoanReturnAssessment returnAssessment = null;
+        if (nextField < fields.length && fields[nextField].startsWith("returnType/")) {
+            if (!returned) {
+                throw new IllegalArgumentException("An active loan cannot contain a return assessment.");
+            }
+            returnAssessment = LoanReturnAssessmentCodec.decode(fields, nextField);
+            if (issueConditionSnapshot != null && !issueConditionSnapshot.getEquipmentType()
+                    .equals(returnAssessment.condition().getEquipmentType())) {
+                throw new IllegalArgumentException("Issue and return assessments must have the same equipment type.");
+            }
+            nextField += LoanReturnAssessmentCodec.FIELD_COUNT;
+        }
+
+        if (nextField != fields.length) {
+            throw new IllegalArgumentException(
+                    "Unexpected optional loan storage fields.");
+        }
+
+        boolean migrated = (rawLoanId != null && !rawLoanId.equals(loanId))
+                || !rawItemId.equals(itemId) || !rawBorrowerId.equals(borrowerId);
+        return new LoanRecord(loanId, parsed.getItemId(), parsed.getBorrowerId(),
+                parsed.getIssuedDate(), parsed.getDueDate(), returned,
+                equipmentRecordId, issueConditionSnapshot, returnAssessment, issueServiceability, migrated);
+    }
+
+    /** Parses the optional returned status from a storage field. */
+    private static boolean parseReturnedField(String field) {
+        String returnedValue = parseField(field, "returned/");
+        if (!returnedValue.equals("true")
+                && !returnedValue.equals("false")) {
+            throw new IllegalArgumentException(
+                    "Expected returned/true or returned/false.");
+        }
+        return Boolean.parseBoolean(returnedValue);
+    }
+
+    /** Parses a canonical identifier or migrates a legacy numeric value in saved data. */
+    private static String parseTypedValue(String value, Identifier.Type type, String name) {
+        try {
+            return Identifier.migrate(value, type);
+        } catch (IllegalArgumentException exception) {
+            String lowerBound = type == Identifier.Type.BORROWER ? "U000" : type.prefix() + "001";
+            throw new IllegalArgumentException(name + " must use " + lowerBound + " to "
+                    + type.prefix() + "999.", exception);
+        }
+    }
+
+    private static String parseField(String field, String prefix) {
+        if (!field.startsWith(prefix)) {
+            throw new IllegalArgumentException("Expected " + prefix + " value.");
+        }
+        return field.substring(prefix.length());
+    }
+
+    private static int readNextLoanNumber(Path sequenceFile, int defaultValue) throws IOException {
+        if (sequenceFile == null || Files.notExists(sequenceFile)) {
+            return defaultValue;
+        }
+        List<String> lines = Files.readAllLines(sequenceFile, StandardCharsets.UTF_8);
+        if (lines.size() != 1 || !lines.getFirst().startsWith("nextLoanId/")) {
+            throw new IOException("Invalid loan sequence file.");
+        }
+        String value = lines.getFirst().substring("nextLoanId/".length());
+        if (value.length() > 0 && Character.toUpperCase(value.charAt(0)) == 'L') {
+            value = value.substring(1);
+        }
+        try {
+            int next = Integer.parseInt(value);
+            if (next < FIRST_LOAN_NUMBER || next > MAX_LOAN_NUMBER + 1) {
+                throw new NumberFormatException();
+            }
+            return next;
+        } catch (NumberFormatException exception) {
+            throw new IOException("Loan sequence must contain nextLoanId/L001 through nextLoanId/L1000.",
+                    exception);
+        }
+    }
+
+    private static String formatLoanId(int loanNumber) {
+        return Identifier.format(loanNumber, Identifier.Type.LOAN);
+    }
+
+    private static String formatSequenceNumber(int loanNumber) {
+        return loanNumber == MAX_LOAN_NUMBER + 1 ? "L1000" : Identifier.format(loanNumber, Identifier.Type.LOAN);
+    }
+
+    /** Returns whether the existing sequence file still uses the legacy numeric representation. */
+    private static boolean sequenceNeedsMigration(Path sequenceFile) throws IOException {
+        if (sequenceFile == null || Files.notExists(sequenceFile)) {
+            return false;
+        }
+        List<String> lines = Files.readAllLines(sequenceFile, StandardCharsets.UTF_8);
+        if (lines.size() != 1 || !lines.getFirst().startsWith("nextLoanId/")) {
+            return false;
+        }
+        String value = lines.getFirst().substring("nextLoanId/".length());
+        return !value.startsWith("L");
+    }
+
+    /** Result of loading records and their next monotonic identifier. */
+    record LoadedLoans(List<Loan> loans, int nextLoanNumber, boolean migrated) {
+    }
+
+    private record LoanRecord(String loanId, String itemId, String borrowerId,
+            java.time.LocalDateTime issuedDate, java.time.LocalDateTime dueDate, boolean returned,
+            String equipmentRecordId,
+            EquipmentConditionSnapshot issueConditionSnapshot, LoanReturnAssessment returnAssessment,
+            Boolean issueServiceability, boolean migrated) {
+    }
+
+    /** Captures a file before replacement so failed loan and return saves can be rolled back. */
+    record FileSnapshot(Path path, boolean existed, boolean regularFile, byte[] contents) {
+        static FileSnapshot capture(Path path) throws IOException {
+            boolean exists = Files.exists(path);
+            boolean regular = exists && Files.isRegularFile(path);
+            byte[] bytes = regular ? Files.readAllBytes(path) : new byte[0];
+            return new FileSnapshot(path, exists, regular, bytes);
+        }
+
+        void restore() throws IOException {
+            if (existed && regularFile) {
+                if (!Files.isRegularFile(path) || !Arrays.equals(Files.readAllBytes(path), contents)) {
+                    Files.write(path, contents);
+                }
+            } else if (!existed && Files.exists(path) && Files.isRegularFile(path)) {
+                Files.delete(path);
+            }
+        }
+    }
+}
+
+// @@author

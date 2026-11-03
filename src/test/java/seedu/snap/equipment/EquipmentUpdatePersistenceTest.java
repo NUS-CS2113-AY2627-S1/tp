@@ -1,0 +1,97 @@
+package seedu.snap.equipment;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.stream.Stream;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import seedu.snap.exceptions.EquipmentUpdateUnsuccessful;
+
+/** Verifies that updates preserve both equipment identity and failure-safe persistence. */
+class EquipmentUpdatePersistenceTest {
+    @TempDir
+    private Path temporaryDirectory;
+
+    @Test
+    void updateEquipment_restart_restoresOnlyTheSuppliedChanges() throws Exception {
+        Path file = temporaryDirectory.resolve("equipment.txt");
+        EquipmentHandler handler = new EquipmentHandler(file);
+        // @@author yarnieee
+        Equipment original = handler.addEquipment("eqm-add name/Camera e/E001 type/camera cond/1");
+        assertSame(original, handler.updateEquipment("eqm-update e/E001 name/Film Camera cond/5"));
+        // @@author
+        EquipmentHandler restarted = new EquipmentHandler(file);
+        restarted.loadFromStorage();
+        Equipment restored = restarted.getEquipmentList().getFirst();
+        assertEquals("Film Camera", restored.getItemName());
+        assertEquals("camera", restored.getType());
+        assertEquals(5, restored.getCondition());
+        // @@author yarnieee
+        assertEquals("E001", restored.getItemId());
+        // @@author
+    }
+
+    @Test
+    void updateEquipment_rejectedValues_preserveSavedFileAndAllowRecovery() throws Exception {
+        Path file = temporaryDirectory.resolve("equipment.txt");
+        EquipmentHandler handler = new EquipmentHandler(file);
+        // @@author yarnieee
+        Equipment original = handler.addEquipment("eqm-add name/Camera e/E001 type/camera cond/1");
+        // @@author
+        String saved = Files.readString(file);
+        assertThrows(EquipmentUpdateUnsuccessful.class,
+                // @@author yarnieee
+                () -> handler.updateEquipment("eqm-update e/E001 name/Changed cond/11"));
+        // @@author
+        assertEquals(saved, Files.readString(file));
+        assertEquals("Camera", original.getItemName());
+        assertEquals(1, original.getCondition());
+        // @@author yarnieee
+        handler.updateEquipment("eqm-update e/E001 cond/10");
+        // @@author
+        EquipmentHandler restarted = new EquipmentHandler(file);
+        restarted.loadFromStorage();
+        assertEquals(10, restarted.getEquipmentList().getFirst().getCondition());
+    }
+
+    @Test
+    void updateEquipment_failedWrite_preservesObjectAndRecoversWhenStorageIsFixed() throws Exception {
+        Path file = temporaryDirectory.resolve("equipment.txt");
+        EquipmentHandler handler = new EquipmentHandler(file);
+        // @@author yarnieee
+        Equipment original = handler.addEquipment("eqm-add name/Camera e/E001 type/camera cond/1");
+        // @@author
+        Files.delete(file);
+        Files.createDirectory(file);
+        Path sentinel = file.resolve("keep.txt");
+        Files.writeString(sentinel, "keep");
+        EquipmentUpdateUnsuccessful error = assertThrows(EquipmentUpdateUnsuccessful.class,
+                // @@author yarnieee
+                () -> handler.updateEquipment("eqm-update e/E001 name/Changed type/camera cond/5"));
+        // @@author
+        assertTrue(error.getMessage().startsWith("Could not save equipment update:"));
+        assertEquals("Camera", original.getItemName());
+        assertEquals("camera", original.getType());
+        assertEquals(1, original.getCondition());
+        assertSame(original, handler.getEquipmentList().getFirst());
+        assertEquals(List.of(original), handler.getEquipmentList());
+        assertEquals("keep", Files.readString(sentinel));
+        try (Stream<Path> files = Files.list(temporaryDirectory)) {
+            assertTrue(files.noneMatch(path -> path.getFileName().toString().startsWith("equipment-")));
+        }
+        Files.delete(sentinel);
+        Files.delete(file);
+        // @@author yarnieee
+        assertSame(original, handler.updateEquipment("eqm-update e/E001 cond/5"));
+        // @@author
+        assertTrue(Files.readString(file).contains("cond/5"));
+    }
+}

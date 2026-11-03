@@ -1,0 +1,46 @@
+@startuml
+!include style.puml
+hide footbox
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 160
+
+participant ":LoanHandler" as Handler
+participant "LoanReturnStorage" as Store <<utility>>
+participant "LoanStorage.FileSnapshot" as Snapshots <<class>>
+participant ":EquipmentHandler" as Inventory
+participant "LoanStorage" as Loans <<utility>>
+
+Handler -> Store: save(...)
+activate Store
+loop each configured file
+    Store -> Snapshots: capture(file)
+    activate Snapshots
+    create participant "snapshot:\nLoanStorage.FileSnapshot" as Snapshot
+    Snapshots -> Snapshot: new(path, existed, regularFile, contents)
+    Snapshot --> Snapshots: snapshot
+    Snapshots --> Store: snapshot
+    deactivate Snapshots
+end
+note right of Store
+Capture equipment, loans and sequence paths.
+Each loop iteration creates one FileSnapshot.
+Keep path state and any regular-file bytes
+before any writes begin.
+end note
+Store -> Inventory: saveReturnAssessment(...)
+Inventory --> Store: equipment saved
+Store -> Loans: save(...)
+Loans --> Store: IOException (example: sequence save failed)
+loop each snapshot
+    Store -> Snapshot: restore()
+    Snapshot --> Store: restored, or IOException retained
+end
+Store --> Handler: IOException with any restoration errors
+deactivate Store
+note over Handler
+Wrap IOException as LoanReturnUnsuccessful;
+no live assessment or returned flag is changed.
+The caller reports a failed restoration when necessary.
+Equipment-save failures use the same restoration loop.
+end note
+@enduml

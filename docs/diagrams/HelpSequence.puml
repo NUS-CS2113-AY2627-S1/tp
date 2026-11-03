@@ -1,0 +1,55 @@
+@startuml
+!include style.puml
+hide footbox
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 210
+
+actor User
+participant ":EqmManager" as Manager
+participant "Help" as Help <<utility>>
+' @@author holsoma
+participant "out:PrintStream" as Output
+note over Output
+System.out refers to this
+PrintStream instance.
+end note
+' @@author
+
+' @@author yarnieee
+User -> Manager: executeInput("help loan-list-overdue")
+' @@author
+activate Manager
+note right of Manager
+Trim surrounding whitespace and check startup status.
+Recognise help with an optional topic.
+end note
+Manager -> Help: print(topic)
+activate Help
+note right of Help
+Trim the topic and normalise whitespace between words.
+Keep exact lowercase command spelling.
+end note
+alt no topic
+Help -> Output: print(compact menu)
+else topic is "all"
+Help -> Output: print(complete reference)
+else exact command topic
+Help -> Output: print(command description)
+else unknown topic
+Help -> Output: print(error and compact menu)
+end
+' @@author holsoma
+note over Output
+The printed help or topic error
+appears in the console.
+end note
+Help --> Manager: printing complete
+deactivate Help
+Manager --> User: ready for the next command
+' @@author
+deactivate Manager
+note over Manager, Help
+No equipment, loan, bundle or storage handler is called.
+No record, next identifier or running flag is changed.
+end note
+@enduml

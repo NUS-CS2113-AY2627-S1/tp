@@ -16,5 +16,11 @@ bin/
 # Temp files
 _temp/
 
+# Generated runtime logs
+/logs/
+
+# Local equipment records
+/data/equipment.txt
+
 /text-ui-test/ACTUAL.TXT
 text-ui-test/EXPECTED-UNIX.TXT
