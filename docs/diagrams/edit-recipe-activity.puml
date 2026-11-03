@@ -1,0 +1,30 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 15
+
+start
+:User enters an edit command;
+:Read the recipe number or name;
+if () then ([recipe found by\nnumber or name])
+  :Find the title/, type/, n/, i/ and st/ values;
+  if () then ([at least one part given,\nno prefix repeated, title,\ntype and note valid])
+    if () then ([new title not used by\nanother recipe])
+      if () then ([each ingredient or step\nnumber exists and its\nnew text is valid])
+        :Apply every new value to the recipe;
+        :Show the updated recipe;
+      else ([else])
+        :Show ingredient or step error;
+      endif
+    else ([else])
+      :Show duplicate-title error;
+    endif
+  else ([else])
+    :Show format or value error;
+  endif
+else ([else])
+  :Show recipe-not-found error;
+endif
+stop
+@enduml

@@ -1,0 +1,23 @@
+add Egg Taco, snack i/1 eggs, 2 tortillas, 50 g cheese st/Cook
+modify Egg Taco s/2
+modify Egg Taco s/4
+modify Egg Taco s/0
+retrieve Egg Taco
+modify egg taco s/2
+modify Egg Taco s/2
+modify Unknown Recipe s/4
+modify Egg Taco s/2147483648
+modify Egg Taco
+add Spice mix, seasoning i/0.125 g pepper, 0.1 tsp oil st/Mix
+modify Spice mix s/3
+retrieve Spice mix
+modify Spice mix s/1
+retrieve Spice mix
+add Garlic bread, side s/4 i/2 tbsp butter st/Spread butter st/Toast
+edit 3 title/Cheesy garlic bread n/Add cheese before toasting
+edit 3 title/Spice mix
+edit 9 type/main
+edit 3 i/1 3 tbsp butter st/2 Toast until golden
+edit cheesy  GARLIC bread n/Serve warm
+view
+bye
