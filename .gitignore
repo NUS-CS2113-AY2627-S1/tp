@@ -18,3 +18,15 @@ _temp/
 
 /text-ui-test/ACTUAL.TXT
 text-ui-test/EXPECTED-UNIX.TXT
+
+.vscode
+.settings
+
+# Local typing history
+/data/keyboardwarrior.txt
+/data/game-save.properties
+/data/game-save-*.tmp
+
+# Generated documentation site and its local Node dependency cache
+/_site/
+/.github/docs/node_modules/

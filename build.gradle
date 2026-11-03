@@ -3,6 +3,7 @@ plugins {
     id 'application'
     id 'checkstyle'
     id 'com.gradleup.shadow' version '9.5.1'
+    id 'jacoco'
 }
 
 java {
@@ -15,6 +16,7 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.jline:jline:3.30.6'
     String jUnitVersion = '5.14.4'
 
     testImplementation "org.junit.jupiter:junit-jupiter-api:${jUnitVersion}"
@@ -24,7 +26,17 @@ dependencies {
 }
 
 test {
+    // Exercise the distributable JAR as well as classes on the test classpath.
+    dependsOn tasks.named('shadowJar')
+    def smokeJar = tasks.named('shadowJar').flatMap { it.archiveFile }
+    inputs.file(smokeJar)
+    doFirst {
+        // Resolve after shadowJar's custom filename has been configured and its archive has been built.
+        systemProperty 'keyboardwarrior.smoke.jar', smokeJar.get().asFile.absolutePath
+    }
     useJUnitPlatform()
+    enableAssertions = true
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
 
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -38,7 +50,7 @@ test {
 }
 
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'seedu.keyboardwarrior.KeyboardWarrior'
 }
 
 jar {
@@ -49,7 +61,11 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    archiveFileName = 'KeyboardWarrior.jar'
+    manifest {
+        // Keep plain java -jar launches warning-free when JLine loads its native terminal provider.
+        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
 }
 
 checkstyle {
@@ -58,4 +74,39 @@ checkstyle {
 
 run {
     standardInput = System.in
+    enableAssertions = true
+    jvmArgs '--enable-native-access=ALL-UNNAMED'
+}
+
+// Compile through Gradle, then let the launch scripts start Java with native terminal input/output.
+tasks.register('prepareTerminalRun') {
+    group = 'application'
+    description = 'Compiles the game and prepares a direct interactive terminal launch without a JAR.'
+    dependsOn tasks.named('classes')
+
+    def runtimeClasspath = sourceSets.main.runtimeClasspath
+    def classpathFile = layout.buildDirectory.file('terminal-run/classpath.txt')
+    def javaHomeFile = layout.buildDirectory.file('terminal-run/java-home.txt')
+    inputs.files(runtimeClasspath)
+    inputs.property('javaHome', System.getProperty('java.home'))
+    inputs.property('javaVersion', JavaVersion.current().toString())
+    outputs.files(classpathFile, javaHomeFile)
+
+    doLast {
+        if (JavaVersion.current() != JavaVersion.VERSION_25) {
+            throw new GradleException('Use Java 25 to build and run Keyboard Warrior.')
+        }
+        def outputFile = classpathFile.get().asFile
+        outputFile.parentFile.mkdirs()
+        outputFile.setText(runtimeClasspath.asPath, 'UTF-8')
+        javaHomeFile.get().asFile.setText(System.getProperty('java.home'), 'UTF-8')
+    }
+}
+
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true
+        html.required = true
+    }
 }

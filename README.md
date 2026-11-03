@@ -1,66 +1,110 @@
-# Duke project template
+# Keyboard Warrior
 
-This is a project template for a greenfield Java project. It's named after the Java mascot _Duke_. Given below are instructions on how to use it.
+Keyboard Warrior is a Java 25 terminal adventure built around typing practice. Complete five
+scenarios by choosing combat, puzzles, reaction challenges or a merchant conversation, then defeat
+both phases of the Kernel Overlord. Combat damage follows typing speed and character accuracy;
+events can award Overclock, heal the player or reduce future typing allowances.
 
-## Setting up in Intellij
+Choose Easy, Normal, Hard or Coder mode, replay a seed, and resume saved progress. The main menu
+accepts numbers or names: `1. Start`, `2. Records`, `3. Exit`, `4. Choose Difficulty`, `5. Continue`
+and `6. Leaderboard`. Records shows the latest ten typing responses; Leaderboard retains one
+all-time best response.
 
-Prerequisites: JDK 25 (use the exact version), update Intellij to the most recent version.
+## Running a release
 
-1. **Ensure Intellij JDK 25 is defined as an SDK**, as described [here](https://www.jetbrains.com/help/idea/sdk.html#set-up-jdk) -- this step is not needed if you have used JDK 25 in a previous Intellij project.
-1. **Import the project _as a Gradle project_**, as described [here](https://se-education.org/guides/tutorials/intellijImportGradleProject.html).
-1. **Verify the setup**: After the importing is complete, locate the `src/main/java/seedu/duke/Duke.java` file, right-click it, and choose `Run Duke.main()`. If the setup is correct, you should see something like the below:
-   ```
-   > Task :compileJava
-   > Task :processResources NO-SOURCE
-   > Task :classes
-   
-   > Task :Duke.main()
-   Hello from
-    ____        _
-   |  _ \ _   _| | _____ 
-   | | | | | | | |/ / _ \
-   | |_| | |_| |   <  __/
-   |____/ \__,_|_|\_\___|
-   
-   What is your name?
-   ```
-   Type some word and press enter to let the execution proceed to the end.
+Download a JAR from the [releases page](https://github.com/AY2627S1-CS2113-W12-4/tp/releases).
+With JDK 25 installed, open a terminal in the JAR's writable folder and run:
 
-**Warning:** Keep the `src\main\java` folder as the root folder for Java files (i.e., don't rename those folders or move Java files to another folder outside of this folder path), as this is the default location some tools (e.g., Gradle) expect to find Java files.
+```text
+java -jar "KeyboardWarrior.jar"
+```
 
-## Build automation using Gradle
+Substitute the downloaded filename if it differs. The same self-contained JAR runs on Windows,
+macOS and Linux. It does not require Gradle, the source project or the launch scripts.
 
-* This project uses Gradle for build automation and dependency management. It includes a basic build script as well (i.e. the `build.gradle` file).
-* If you are new to Gradle, refer to the [Gradle Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/gradle.html).
+Enter `start`, then a seed or a blank line for a random seed. Each regular scenario offers three
+encounters: `1` is combat, `2` is an event, and `3` may be either. In combat, enter a displayed skill
+name and type its passage. For an event, solve the puzzle or follow the displayed response.
+Surviving an event advances the scenario even if its response incurs a penalty. The final boss
+starts after scenario five; both phases must be defeated to win.
 
-## Testing
+| Mode | Damage and countdown multiplier | Starting HP |
+| --- | --- | --- |
+| Easy | x4 | 400 |
+| Normal | x2 | 200 |
+| Hard (default) | x1 | 100 |
+| Coder | x0.8 | 80 |
 
-### I/O redirection tests
+On Hard, 50 WPM and 95% character accuracy deal 40 combat damage. Overclock is earned from a
+successful puzzle or trade and adds time to later combat and puzzle challenges. Event healing
+can raise HP above starting health; changing scenario or boss phase gives no automatic healing.
 
-* To run _I/O redirection_ tests (aka _Text UI tests_), navigate to the `text-ui-test` and run the `runtest(.bat/.sh)` script.
+Supported terminals show a live timer above the instructions and capture unfinished input at
+expiry. Other consoles use plain-text mode, which waits for Enter and measures the actual elapsed
+time. Reaction commands appear automatically in both modes. Combat keeps its WPM/accuracy damage
+when late; event responses must meet their deadline. Use a native terminal, Windows Terminal or
+IntelliJ's Terminal for live capture. Gradle `run` and IDE Run consoles may use plain mode.
 
-### JUnit tests
+Progress saves automatically, including displayed choices, event stage, learned skills, time
+adjustment, HP and future random selections. Enter `exit` to quit, then restart from the same
+folder and choose `continue`. Unfinished text and response timers are reset on Continue. Start
+replaces the old save; victory or defeat removes it. History and the leaderboard remain.
 
-* A skeleton JUnit test (`src/test/java/seedu/duke/DukeTest.java`) is provided with this project template. 
-* If you are new to JUnit, refer to the [JUnit Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/junit.html).
+The [User Guide](docs/UserGuide.md) covers event rules, deadlines, scoring and data-file behavior.
 
-## Checkstyle
+## Setting up in IntelliJ
 
-* A sample CheckStyle rule configuration is provided in this project.
-* If you are new to Checkstyle, refer to the [Checkstyle Tutorial at se-education.org/guides](https://se-education.org/guides/tutorials/checkstyle.html).
+1. Install JDK 25 and [define it as the project SDK](https://www.jetbrains.com/help/idea/sdk.html#set-up-jdk).
+2. [Import the project as Gradle](https://se-education.org/guides/tutorials/intellijImportGradleProject.html)
+   and select JDK 25 as the Gradle JVM.
+3. Run Gradle's `check` task for tests and Checkstyle.
+4. For gameplay, open the terminal and run `sh ./run-game.sh` on macOS/Linux or `.\run-game.bat`
+   in Windows PowerShell from the project folder.
 
-## CI using GitHub Actions
+The optional source launchers compile through Gradle, then start Java directly with assertions
+and native terminal access enabled. They do not build a JAR. For an IntelliJ Application run,
+add `-ea` to **VM options** to enable assertions. Keep Java sources under `src/main/java`.
 
-The project uses [GitHub actions](https://github.com/features/actions) for CI. When you push a commit to this repo or PR against it, GitHub actions will run automatically to build and verify the code as updated by the commit/PR.
+## Build automation and tests
 
-## Documentation
+Use JDK 25 with the Gradle wrapper. On Windows, replace `./gradlew` below with `.\gradlew.bat`.
 
-`/docs` folder contains a skeleton version of the project documentation.
+| Command | Purpose |
+| --- | --- |
+| `./gradlew check` | Build the executable JAR, run JUnit and packaged-JAR smoke tests, and run Checkstyle |
+| `./gradlew prepareTerminalRun` | Prepare compiled classes for the source launchers |
+| `./gradlew shadowJar` | Package the application and dependencies into `build/libs/KeyboardWarrior.jar` |
+| `./gradlew jacocoTestReport` | Generate test-coverage reports |
 
-Steps for publishing documentation to the public: 
-1. If you are using this project template for an individual project, go your fork on GitHub.<br>
-   If you are using this project template for a team project, go to the team fork on GitHub.
-1. Click on the `settings` tab.
-1. Scroll down to the `GitHub Pages` section.
-1. Set the `source` as `master branch /docs folder`.
-1. Optionally, use the `choose a theme` button to choose a theme for your documentation.
+Run a packaged development build with `java -ea -jar build/libs/KeyboardWarrior.jar`. The JAR
+manifest enables the bundled terminal library's native access; a separate command-line
+native-access flag is not required. Gradle's `run` and `test` tasks enable assertions.
+
+Tests under `src/test/java/seedu/keyboardwarrior` cover typing, clocks, combat, events, rewards,
+encounter choices, both boss phases, saves, seeded continuation, menus and terminal behavior.
+Packaged-JAR smoke tests launch from temporary folders with redirected input/output, checking
+startup and clean shutdown. [Java CI](.github/workflows/gradle.yml) runs `check` on Windows,
+macOS and Linux for pushes and pull requests. Checkstyle rules live under `config/checkstyle`.
+
+## Documentation and website
+
+- [User Guide](docs/UserGuide.md): installation, commands and gameplay.
+- [Developer Guide](docs/DeveloperGuide.md): design, UML, persistence and verification.
+- [Product website](https://ay2627s1-cs2113-w12-4.github.io/tp/).
+- [About Us](docs/AboutUs.md) and individual project portfolios.
+
+The website source is `docs`. The [documentation workflow](.github/workflows/pages.yml) builds
+every guide, About Us and PPP directly from those Markdown files, checks local links, and deploys
+the checked artifact on pushes to `master`. Set `Settings > Pages > Build and deployment > Source`
+to **GitHub Actions** and enable the workflow. No separately maintained HTML copies are needed.
+The published `source-manifest.json` records each page's source hash so a stale deployment can be
+identified. UG and DG are published as web pages. Your individual PPP also has a PDF for final submission.
+
+To preview the website locally, use Node.js 24 and run:
+
+```text
+npm ci --prefix .github/docs --ignore-scripts
+node .github/docs/build.mjs docs build/docs-site
+```
+
+Open `build/docs-site/index.html`. The build checks links and does not change the Markdown sources.

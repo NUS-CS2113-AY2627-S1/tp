@@ -1,9 +1,10 @@
 # About us
 
-Display | Name | Github Profile | Portfolio 
---------|:----:|:--------------:|:---------:
-![](https://via.placeholder.com/100.png?text=Photo) | John Doe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Joe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Ron John | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | John Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
-![](https://via.placeholder.com/100.png?text=Photo) | Don Roe | [Github](https://github.com/) | [Portfolio](docs/team/johndoe.md)
+Meet the team behind Keyboard Warrior. Each portfolio describes that member's project contributions.
+
+Display | Name | GitHub profile | Portfolio
+-------- | :----: | :--------------: | :---------:
+<img src="photos/yong-de.jpg" width="60" height="60"> | Koh Yong De | [Github](https://github.com/Yong-De) | [Portfolio](team/yong-de.md)
+<img src="https://avatars.githubusercontent.com/u/182413031?v=4" width="60" height="60"> | Nguyen Duc Khoa | [Github](https://github.com/Lmaokx) | [Portfolio](team/lmaokx.md)
+<img src="https://avatars.githubusercontent.com/u/205896500?v=4" width="60" height="60"> | Truong Phi Hung | [GitHub](https://github.com/vanitasluna) | [Portfolio](team/vanitasluna.md)
+<img src="https://avatars.githubusercontent.com/u/219258069?v=4" width="60" height="60"> | Tiu Sheng Yang | [Github](https://github.com/shengyang2010) | [Portfolio](team/shengyang2010.md)

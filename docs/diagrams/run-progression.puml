@@ -1,0 +1,62 @@
+@startuml
+' Scope: retained run references, encounter variants and opponent creation.
+!pragma layout smetana
+top to bottom direction
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontSize 14
+skinparam classAttributeIconSize 0
+hide empty members
+hide circle
+
+class GamePlayState {
+  -scenarioIndex : int
+  -bossPhase : int
+  -startScenario()
+  -startBossPhase()
+  -advanceAfterVictory()
+}
+abstract class Encounter {
+  +getIsCompleted()
+  +getEncounterOutcome()
+}
+class Player
+class CombatEncounter {
+  +begin()
+  +preparePlayerTurn(...)
+  +submitTypingResult(...)
+}
+abstract class EventEncounter {
+  +prepareEvent(...)
+  +updateEvent(...)
+  +submitAnswer(...)
+  +resumeEvent(...)
+}
+class EncounterFactory {
+  +generateChoices(...)
+  +snapshot(...)
+  +restore(...)
+}
+class Enemy
+class EnemyFactory
+
+GamePlayState --> "1\nplayer" Player
+GamePlayState --> "0..1\nencounter" Encounter
+GamePlayState --> "0..3\nchoices" Encounter
+GamePlayState --> "1\nencounterFactory" EncounterFactory
+GamePlayState ..> EnemyFactory
+Encounter <|-- CombatEncounter
+Encounter <|-- EventEncounter
+EncounterFactory ..> EnemyFactory
+CombatEncounter --> "1\nplayer" Player
+CombatEncounter --> "1\nenemy" Enemy
+EnemyFactory ..> Enemy : <<create>>
+
+note bottom of GamePlayState
+  bossPhase = 0 in regular scenarios;
+  1 or 2 in the final boss encounter.
+  Either three offers or one selected encounter.
+end note
+@enduml

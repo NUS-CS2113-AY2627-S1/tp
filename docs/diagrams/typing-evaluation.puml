@@ -1,0 +1,49 @@
+@startuml
+' Scope: successful snapshot evaluation; input, formatting and combat are outside this interaction.
+hide footbox
+skinparam monochrome true
+skinparam defaultFontName Arial
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam defaultFontSize 14
+skinparam sequenceMessageAlign center
+participant "TypingEvaluator" as evaluator <<class>>
+participant "WordErrorFinder" as errors <<class>>
+participant "WpmCalculator" as speed <<class>>
+participant "AccuracyCalculator" as accuracy <<class>>
+
+[-> evaluator : evaluateTyping(...)
+activate evaluator
+note over evaluator, errors
+  Validate inputs; normalize both strings;
+  prepare the expected and typed word arrays.
+end note
+
+evaluator -> errors : find(...)
+activate errors
+errors --> evaluator : wordErrors
+deactivate errors
+
+evaluator -> speed : calculate(...)
+activate speed
+speed --> evaluator : wpm
+deactivate speed
+
+evaluator -> accuracy : calculate(...)
+activate accuracy
+accuracy --> evaluator : accuracyPercent
+deactivate accuracy
+
+create participant "result:TypingResult" as result
+evaluator -> result : TypingResult(...)
+activate result
+result --> evaluator : result
+deactivate result
+
+[<-- evaluator : result
+deactivate evaluator
+note over evaluator, result
+  The result is immutable. Deadline status does not reduce damage.
+  Accuracy calculation internals are outside this diagram's scope.
+end note
+@enduml
