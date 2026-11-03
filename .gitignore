@@ -18,3 +18,12 @@ _temp/
 
 /text-ui-test/ACTUAL.TXT
 text-ui-test/EXPECTED-UNIX.TXT
+
+.agents/
+
+# Application logs and their lock files
+/mishmash.*.log*
+/data/
+
+# Python documentation-check caches
+__pycache__/

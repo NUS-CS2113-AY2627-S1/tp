@@ -1,0 +1,68 @@
+@startuml
+!pragma layout smetana
+!include style.iuml
+title Meal recording commands and collaborators
+top to bottom direction
+skinparam nodesep 60
+skinparam ranksep 80
+hide empty members
+
+class Parser {
+  + parseCommand(input: String): Command
+}
+interface Command <<interface>> {
+  + execute(recipeBook: RecipeBook): String
+  + executeWithResult(recipeBook: RecipeBook): CommandResult
+}
+class CommandResult <<record>>
+class RecordMealCommand
+class ViewMealsCommand
+class EditMealCommand
+class DeleteMealCommand
+class MealLookup {
+  ~ {static} find(mealLog: MealLog, mealNumber: int, usage: String): MealEntry
+}
+class MealLog {
+  + record(entry: MealEntry): void
+  + replace(index: int, entry: MealEntry): void
+  + remove(index: int): MealEntry
+  + getEntries(): List<MealEntry>
+  + getTotals(): NutritionTotals
+  + getTotalsOn(date: LocalDate): NutritionTotals
+}
+class MealLogViewer {
+  + view(entries: List<MealEntry>, totals: NutritionTotals): String
+  + viewDate(entries: List<MealEntry>, date: LocalDate, totals: NutritionTotals): String
+  + viewRecorded(entry: MealEntry, dayTotals: NutritionTotals): String
+  + viewEdited(entry: MealEntry, dayTotals: NutritionTotals): String
+  + viewDeleted(entry: MealEntry, dayTotals: NutritionTotals): String
+}
+class RecipeBook
+
+Parser ..> RecordMealCommand : creates
+Parser ..> ViewMealsCommand : creates
+Parser ..> EditMealCommand : creates
+Parser ..> DeleteMealCommand : creates
+Parser -right-> "1" MealLog : -mealLog
+RecordMealCommand .up.|> Command
+ViewMealsCommand .up.|> Command
+EditMealCommand .up.|> Command
+DeleteMealCommand .up.|> Command
+Command ..> CommandResult : returns
+RecordMealCommand -down-> "1" MealLog : -mealLog
+ViewMealsCommand -right-> "1" MealLog : -mealLog
+EditMealCommand -down-> "1" MealLog : -mealLog
+DeleteMealCommand -down-> "1" MealLog : -mealLog
+EditMealCommand ..> MealLookup : calls
+DeleteMealCommand ..> MealLookup : calls
+RecordMealCommand ..> RecipeBook : reads
+RecordMealCommand ..> MealLogViewer : creates and calls
+ViewMealsCommand ..> MealLogViewer : creates and calls
+EditMealCommand ..> MealLogViewer : creates and calls
+DeleteMealCommand ..> MealLogViewer : creates and calls
+RecipeBook -[hidden]right-> MealLogViewer
+
+legend bottom
+  Only feature-relevant members are shown.
+endlegend
+@enduml

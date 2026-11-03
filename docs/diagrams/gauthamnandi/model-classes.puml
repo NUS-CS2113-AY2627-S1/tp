@@ -1,0 +1,49 @@
+@startuml
+!pragma layout smetana
+!include style.iuml
+title Meal recording model
+top to bottom direction
+skinparam nodesep 35
+skinparam ranksep 55
+hide empty members
+
+class MealLog {
+  + record(entry: MealEntry): void
+  + replace(index: int, entry: MealEntry): void
+  + remove(index: int): MealEntry
+  + getEntries(): List<MealEntry>
+  + getTotals(): NutritionTotals
+  + getTotalsOn(date: LocalDate): NutritionTotals
+}
+class MealEntry <<record>> {
+  - date: LocalDate
+  - servings: int
+  + nutrition(): NutritionTotals
+  + with(changes: MealEntryChanges): MealEntry
+}
+class MealEntryChanges <<record>> {
+  - date: LocalDate
+  - servings: Integer
+}
+class NutritionTotals <<record>> {
+  - calories: long
+  - protein: long
+  - carbs: long
+  - fats: long
+}
+class RecipeBook {
+  + getRecipes(): List<Recipe>
+}
+class Recipe
+
+MealLog --> "0..*" MealEntry : -entries
+MealEntry --> "1" Recipe : -recipe
+MealEntry ..> MealEntryChanges : reads
+MealEntry ..> NutritionTotals : creates
+RecipeBook --> "0..*" Recipe : -recipes
+MealLog ..> NutritionTotals : creates
+
+legend bottom
+  Only feature-relevant members are shown.
+endlegend
+@enduml

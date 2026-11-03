@@ -1,0 +1,38 @@
+@startuml
+!include ../rixte/shortfall/style.iuml
+title view-plan: calculate warnings for each displayed day
+autonumber
+
+participant "viewCommand:ViewPlanCommand" as View
+participant "viewer:MealPlanViewer" as Viewer
+participant "targets:NutritionTargets" as Targets
+
+View -> Viewer : view(mealsByDay, dayNumber, targets)
+activate Viewer
+loop each displayed day
+  Viewer -> Viewer : formatDay(meals, dayNumber, targets)
+  activate Viewer
+  Viewer -> Viewer : formatDailyTotals(meals, targets)
+  activate Viewer
+  Viewer -> Viewer : formatWarnings(totals, targets)
+  activate Viewer
+  Viewer -> Targets : calculateExcesses(totals)
+  activate Targets
+  Targets --> Viewer : excesses
+  deactivate Targets
+  loop calories, protein, carbs, fats
+    Viewer -> Viewer : formatWarning(..., actual, target, excess)
+    activate Viewer
+    Viewer --> Viewer : warning line or empty string
+    deactivate Viewer
+  end
+  Viewer --> Viewer : warning text
+  deactivate Viewer
+  Viewer --> Viewer : daily totals and warnings
+  deactivate Viewer
+  Viewer --> Viewer : formatted day
+  deactivate Viewer
+end
+Viewer --> View : formatted selection
+deactivate Viewer
+@enduml

@@ -1,0 +1,62 @@
+@startuml
+!include ../rixte/shortfall/style.iuml
+title Combined daily totals: one read-only calculation
+autonumber
+
+actor Caller
+participant "day:DayPlan" as Day
+participant "meal:PlannedMeal" as Meal
+participant "totals:NutritionTotals" as Totals
+
+Caller -> Day : calculateDailyNutritionTotals()
+activate Day
+group Constructor arguments are evaluated in this order
+  Day -> Day : getTotalCalories()
+  activate Day
+  loop each meal occurrence
+    Day -> Meal : getCalories()
+    activate Meal
+    Meal --> Day : calories
+    deactivate Meal
+  end
+  Day --> Day : calorie sum
+  deactivate Day
+  Day -> Day : getTotalProtein()
+  activate Day
+  loop each meal occurrence
+    Day -> Meal : getProtein()
+    activate Meal
+    Meal --> Day : protein
+    deactivate Meal
+  end
+  Day --> Day : protein sum
+  deactivate Day
+  Day -> Day : getTotalCarbs()
+  activate Day
+  loop each meal occurrence
+    Day -> Meal : getCarbs()
+    activate Meal
+    Meal --> Day : carbohydrates
+    deactivate Meal
+  end
+  Day --> Day : carbohydrate sum
+  deactivate Day
+  Day -> Day : getTotalFats()
+  activate Day
+  loop each meal occurrence
+    Day -> Meal : getFats()
+    activate Meal
+    Meal --> Day : fats
+    deactivate Meal
+  end
+  Day --> Day : fat sum
+  deactivate Day
+end
+create Totals
+Day -> Totals : new NutritionTotals(calories, protein, carbs, fats)
+activate Totals
+Totals --> Day : totals
+deactivate Totals
+Day --> Caller : totals
+deactivate Day
+@enduml

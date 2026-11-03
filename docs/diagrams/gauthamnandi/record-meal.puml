@@ -1,0 +1,55 @@
+@startuml
+!include style.iuml
+title Executing record-meal 2
+
+participant ":MishMash" as App
+participant "cmd:RecordMealCommand" as Command
+participant "recipeBook:RecipeBook" as Book
+participant "entry:MealEntry" as Entry
+participant "mealLog:MealLog" as Log
+participant "viewer:MealLogViewer" as Viewer
+
+ref over App, Command : Parse "record-meal 2"
+
+App -> Command : executeWithResult(recipeBook)
+activate Command
+Command -> Command : execute(recipeBook)
+activate Command
+Command -> Book : getRecipes()
+activate Book
+Book --> Command : recipes
+deactivate Book
+create Entry
+Command -> Entry : MealEntry(recipe, date, servings)
+activate Entry
+deactivate Entry
+Command -> Log : record(entry)
+activate Log
+deactivate Log
+create Viewer
+Command -> Viewer : MealLogViewer()
+activate Viewer
+deactivate Viewer
+Command -> Log : getTotalsOn(date)
+activate Log
+Log --> Command : dayTotals
+deactivate Log
+Command -> Viewer : viewRecorded(entry, dayTotals)
+activate Viewer
+Viewer --> Command : text
+deactivate Viewer
+Command --> Command : text
+deactivate Command
+Command --> App : result
+deactivate Command
+Viewer -[hidden]-> App
+destroy Viewer
+Command -[hidden]-> App
+destroy Command
+
+note over Command, Log
+  recipe is the second element of recipes. The viewer is created
+  before the totals are read, as in the Java code. executeWithResult
+  wraps the text from execute in a CommandResult with status done.
+end note
+@enduml

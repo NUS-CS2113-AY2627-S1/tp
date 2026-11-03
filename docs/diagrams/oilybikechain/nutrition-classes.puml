@@ -1,0 +1,41 @@
+@startuml
+!pragma layout smetana
+!include ../rixte/shortfall/style.iuml
+hide circle
+
+title Combined daily nutrition totals
+top to bottom direction
+skinparam nodesep 35
+skinparam ranksep 55
+hide empty members
+
+class DayPlan {
+  + calculateDailyNutritionTotals(): NutritionTotals
+  + getTotalCalories(): long
+  + getTotalProtein(): long
+  + getTotalCarbs(): long
+  + getTotalFats(): long
+}
+class PlannedMeal {
+  - portionCount: int
+  + getCalories(): long
+  + getProtein(): long
+  + getCarbs(): long
+  + getFats(): long
+}
+class Recipe
+class NutritionTotals <<record>> {
+  - calories: long
+  - protein: long
+  - carbs: long
+  - fats: long
+}
+
+DayPlan --> "0..*" PlannedMeal : -plannedMeals\n{ordered, nonunique}
+PlannedMeal --> "1" Recipe : -recipe
+DayPlan ..> NutritionTotals : creates
+
+legend bottom
+  Only feature-relevant members are shown.
+endlegend
+@enduml

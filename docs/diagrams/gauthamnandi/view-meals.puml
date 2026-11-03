@@ -1,0 +1,43 @@
+@startuml
+!include style.iuml
+title Executing view-meals with a non-empty log
+
+participant ":MishMash" as App
+participant "cmd:ViewMealsCommand" as Command
+participant "mealLog:MealLog" as Log
+participant "viewer:MealLogViewer" as Viewer
+
+App -> Command : executeWithResult(recipeBook)
+activate Command
+Command -> Log : getEntries()
+activate Log
+Log --> Command : entries
+deactivate Log
+create Viewer
+Command -> Viewer : MealLogViewer()
+activate Viewer
+deactivate Viewer
+Command -> Log : getTotals()
+activate Log
+Log --> Command : totals
+deactivate Log
+Command -> Viewer : view(entries, totals)
+activate Viewer
+Viewer --> Command : text
+deactivate Viewer
+Command --> App : result
+deactivate Command
+Viewer -[hidden]-> App
+destroy Viewer
+Command -[hidden]-> App
+destroy Command
+
+note over Command, Log
+  result is a CommandResult holding the text and an info status.
+  With an empty log the command returns a note status with "No meals
+  recorded yet." without creating a viewer, even with date/. With date/
+  and a non-empty log, the command calls getTotalsOn(date) and
+  viewDate(entries, date, totals) instead, or returns a note status
+  if no meal was recorded on that date.
+end note
+@enduml

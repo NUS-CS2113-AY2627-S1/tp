@@ -1,0 +1,41 @@
+@startuml
+!pragma layout smetana
+!include ../rixte/shortfall/style.iuml
+hide circle
+
+title Grocery command integration
+top to bottom direction
+skinparam nodesep 35
+skinparam ranksep 55
+hide empty members
+
+class Parser {
+  - parseGenerateList(arguments: String): Command
+}
+interface Command <<interface>> {
+  + execute(recipeBook: RecipeBook): String
+  + executeWithResult(...): CommandResult
+}
+class GenerateListCommand {
+  + execute(recipeBook: RecipeBook): String
+  + executeWithResult(...): CommandResult
+}
+class GroceryListGenerator {
+  + generateForPlan(plan: MealPlan): List<GroceryItem>
+}
+class ActiveMealPlan {
+  + get(): Optional<MealPlan>
+  + setGroceryList(items: List<GroceryItem>): void
+  + getGroceryList(): Optional<List<GroceryItem>>
+}
+Parser --> "1" ActiveMealPlan : -activeMealPlan
+Parser ..> GenerateListCommand : creates
+GenerateListCommand ..|> Command
+GenerateListCommand --> "1" ActiveMealPlan : -activeMealPlan
+GenerateListCommand ..> GroceryListGenerator : creates
+GroceryListGenerator ..> MealPlan : reads
+legend bottom
+  Only feature-relevant members are shown.
+  ... omits the recipeBook parameter.
+endlegend
+@enduml

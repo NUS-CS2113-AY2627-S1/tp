@@ -1,0 +1,26 @@
+@startuml
+!include ../rixte/shortfall/style.iuml
+title Recover after a rejected command
+autonumber
+
+actor User
+participant "mishMash:MishMash" as App
+participant "logger:Logger" as Logger
+participant "input:ConsoleInput" as Input
+
+App -> Logger : log(FINE, "Command rejected", exception)
+activate Logger
+Logger --> App : void
+deactivate Logger
+App -> App : displayError(exception)
+activate App
+App -> User : display message and generate-plan usage
+App --> App : void
+deactivate App
+App -> Input : readCommand(prompt)
+activate Input
+Input -> User : display next-command prompt
+User --> Input : input line
+Input --> App : optional command
+deactivate Input
+@enduml

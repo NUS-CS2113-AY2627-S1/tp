@@ -1,0 +1,36 @@
+@startuml
+!include ../rixte/shortfall/style.iuml
+title generateForPlan: collect scaled ingredients from every planned occurrence
+autonumber
+
+actor Caller
+participant "generator:GroceryListGenerator" as Generator
+participant "plan:MealPlan" as Plan
+participant "day:DayPlan" as Day
+participant "meal:PlannedMeal" as Meal
+
+Caller -> Generator : generateForPlan(plan)
+activate Generator
+Generator -> Plan : getDays()
+activate Plan
+Plan --> Generator : days
+deactivate Plan
+loop each day
+  Generator -> Day : getPlannedMeals()
+  activate Day
+  Day --> Generator : plannedMeals
+  deactivate Day
+  loop each planned meal occurrence
+    Generator -> Meal : getScaledIngredients()
+    activate Meal
+    Meal --> Generator : scaledIngredients
+    deactivate Meal
+  end
+end
+Generator -> Generator : generate(ingredients)
+activate Generator
+Generator --> Generator : groceries
+deactivate Generator
+Generator --> Caller : groceries
+deactivate Generator
+@enduml

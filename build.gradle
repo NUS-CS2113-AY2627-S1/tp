@@ -2,6 +2,7 @@ plugins {
     id 'java'
     id 'application'
     id 'checkstyle'
+    id 'jacoco'
     id 'com.gradleup.shadow' version '9.5.1'
 }
 
@@ -17,6 +18,10 @@ repositories {
 dependencies {
     String jUnitVersion = '5.14.4'
 
+    implementation 'org.jline:jline-reader:4.4.8'
+    implementation 'tools.jackson.core:jackson-databind:3.1.8'
+    runtimeOnly 'org.jline:jline-terminal-jni:4.4.8'
+
     testImplementation "org.junit.jupiter:junit-jupiter-api:${jUnitVersion}"
 
     testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${jUnitVersion}"
@@ -24,7 +29,21 @@ dependencies {
 }
 
 test {
+    dependsOn shadowJar
+    systemProperty 'mishmash.test.jar', layout.buildDirectory.file('libs/MishMash.jar').get().asFile.absolutePath
     useJUnitPlatform()
+    // Exercise internal invariants during every test run as well as application runs.
+    enableAssertions = true
+
+    // Include launcher tests that run the packaged application in independent JVMs.
+    doFirst {
+        delete layout.buildDirectory.dir('jacoco/launcher')
+        if (jacoco.enabled) {
+            systemProperty 'mishmash.test.coverage.agent', jacoco.asJvmArg
+            systemProperty 'mishmash.test.coverage.directory',
+                    layout.buildDirectory.dir('jacoco/launcher').get().asFile.absolutePath
+        }
+    }
 
     testLogging {
         events 'passed', 'skipped', 'failed'
@@ -37,8 +56,67 @@ test {
     }
 }
 
+// Java 25 requires a compatible coverage agent. Reports distinguish tested lines from branches.
+jacoco {
+    toolVersion = '0.8.14'
+}
+
+jacocoTestReport {
+    dependsOn test
+    executionData fileTree(layout.buildDirectory.dir('jacoco/launcher')) { include '*.exec' }
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}
+
+// Guard plan-changing commands, application startup and terminal selection against coverage gaps.
+jacocoTestCoverageVerification {
+    dependsOn test
+    executionData fileTree(layout.buildDirectory.dir('jacoco/launcher')) { include '*.exec' }
+    violationRules {
+        // Justin's grocery/nutrition, portions, customization, and storage sources must exceed 95% individually.
+        // SOURCEFILE includes nested DTOs and helpers in their owning file instead of hiding their counters.
+        rule {
+            element = 'SOURCEFILE'
+            includes = ['*GroceryListGenerator.java', '*GenerateListCommand.java', '*ViewListCommand.java',
+                        '*GroceryListViewer.java', '*GroceryItem.java', '*NutritionTotals.java', '*DayPlan.java',
+                        '*NutritionTargets.java', '*MealPlan.java', '*MealPlanViewer.java', '*ActiveMealPlan.java',
+                        '*PortionAdjustment.java', '*PlannedMeal.java', '*IngredientCustomization.java',
+                        '*AdjustPortionCommand.java', '*CustomizeMealCommand.java', '*AdjustPortionParser.java',
+                        '*CustomizeMealParser.java', '*IngredientParser.java', '*ApplicationState.java',
+                        '*JsonSessionStorage.java', '*LoadResult.java', '*SessionData.java', '*SessionPersistence.java',
+                        '*StorageException.java', '*StorageFiles.java']
+            limit {
+                counter = 'LINE'
+                minimum = 0.9501
+            }
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.9501
+            }
+        }
+        rule {
+            element = 'CLASS'
+            includes = ['mishmash.command.ResetPlanCommand', 'mishmash.command.GeneratePlanCommand',
+                        'mishmash.command.SetDietCommand', 'mishmash.MishMash', 'mishmash.ui.ConsoleInputs']
+            limit {
+                counter = 'LINE'
+                minimum = 1.0
+            }
+            limit {
+                counter = 'BRANCH'
+                minimum = 1.0
+            }
+        }
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
+
 application {
-    mainClass = 'seedu.duke.Duke'
+    mainClass = 'mishmash.MishMash'
+    applicationDefaultJvmArgs = ['-ea', '--enable-native-access=ALL-UNNAMED']
 }
 
 jar {
@@ -49,7 +127,15 @@ jar {
 }
 
 shadowJar {
-    archiveFileName = 'duke.jar'
+    filesMatching('META-INF/services/**') {
+        duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    }
+    archiveFileName = 'MishMash.jar'
+    // Preserve terminal-provider service metadata when packaging dependencies.
+    mergeServiceFiles()
+    manifest {
+        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
 }
 
 checkstyle {
